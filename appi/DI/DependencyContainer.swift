@@ -33,6 +33,7 @@ final class DependencyContainer {
         RequestEditorViewModel(
             draft: draft,
             tab: tab,
+            tabRepository: tabRepository,
             requestRepository: requestRepository,
             responseRepository: responseRepository,
             collectionRepository: collectionRepository,

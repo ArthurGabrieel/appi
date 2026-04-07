@@ -2,7 +2,9 @@ import Foundation
 
 @Observable
 final class RequestEditorViewModel {
-    var draft: RequestDraft
+    var draft: RequestDraft {
+        didSet { syncDraftToTab() }
+    }
     var tab: Tab
     var response: Response?
     var error: (any LocalizedError)?
@@ -11,6 +13,7 @@ final class RequestEditorViewModel {
     private var sendTask: Task<Void, Never>?
     private var activeSendID: UUID?
 
+    private let tabRepository: any TabRepository
     private let requestRepository: any RequestRepository
     private let responseRepository: any ResponseRepository
     private let collectionRepository: any CollectionRepository
@@ -21,6 +24,7 @@ final class RequestEditorViewModel {
     init(
         draft: RequestDraft,
         tab: Tab,
+        tabRepository: any TabRepository,
         requestRepository: any RequestRepository,
         responseRepository: any ResponseRepository,
         collectionRepository: any CollectionRepository,
@@ -30,6 +34,7 @@ final class RequestEditorViewModel {
     ) {
         self.draft = draft
         self.tab = tab
+        self.tabRepository = tabRepository
         self.requestRepository = requestRepository
         self.responseRepository = responseRepository
         self.collectionRepository = collectionRepository
@@ -76,6 +81,9 @@ final class RequestEditorViewModel {
             try await requestRepository.save(request)
             tab.linkedRequestId = request.id
         }
+        tab.draft = draft
+        tab.originalDraft = draft  // Reset baseline — tab is no longer dirty
+        try await tabRepository.save(tab)
     }
 
     @MainActor
@@ -87,9 +95,7 @@ final class RequestEditorViewModel {
     }
 
     var isDirty: Bool {
-        // For now, always true if there's a linkedRequest
-        // Will be enhanced with proper comparison in Sprint 2
-        tab.linkedRequestId != nil
+        tab.isDirty
     }
 
     @MainActor
@@ -158,5 +164,14 @@ final class RequestEditorViewModel {
     @MainActor
     private func isActiveSend(_ sendID: UUID) -> Bool {
         activeSendID == sendID
+    }
+
+    private func syncDraftToTab() {
+        guard tab.draft != draft else { return }
+        tab.draft = draft
+        let snapshot = tab
+        Task {
+            try? await tabRepository.save(snapshot)
+        }
     }
 }

@@ -11,7 +11,8 @@ struct RequestEditorViewModelTests {
         authResolver: MockAuthResolver = MockAuthResolver(),
         requestRepository: MockRequestRepository = MockRequestRepository(),
         responseRepository: MockResponseRepository = MockResponseRepository(),
-        collectionRepository: MockCollectionRepository = MockCollectionRepository()
+        collectionRepository: MockCollectionRepository = MockCollectionRepository(),
+        tabRepository: MockTabRepository = MockTabRepository()
     ) -> RequestEditorViewModel {
         let collectionId = UUID()
         let actualTab = tab ?? Tab(
@@ -23,6 +24,7 @@ struct RequestEditorViewModelTests {
         return RequestEditorViewModel(
             draft: actualTab.draft,
             tab: actualTab,
+            tabRepository: tabRepository,
             requestRepository: requestRepository,
             responseRepository: responseRepository,
             collectionRepository: collectionRepository,
@@ -176,5 +178,35 @@ struct RequestEditorViewModelTests {
         #expect(firstViewModel.isLoading == false)
         #expect(secondViewModel.response?.statusCode == 200)
         #expect(secondViewModel.error == nil)
+    }
+
+    @Test("cancelRequest stops in-flight send")
+    func cancelRequest() async throws {
+        let httpClient = MockHTTPClient()
+        httpClient.result = .failure(RequestError.cancelled)
+        let url = URL(string: "https://api.example.com")!
+        let envResolver = MockEnvResolver()
+        envResolver.resolveResult = .success(PreparedRequest(method: .get, url: url, headers: [], body: .none))
+        let authResolver = MockAuthResolver()
+        authResolver.resolveResult = .success(.none)
+
+        let vm = makeViewModel(httpClient: httpClient, envResolver: envResolver, authResolver: authResolver)
+        vm.startSend(environment: nil)
+        vm.cancelRequest()
+
+        #expect(vm.isLoading == false)
+    }
+
+    @Test("draft changes are synced to tab via tabRepository")
+    func draftSyncToTab() async throws {
+        let tabRepo = MockTabRepository()
+        let vm = makeViewModel(tabRepository: tabRepo)
+        vm.draft.url = "https://updated.example.com"
+
+        // Wait for async save
+        try await Task.sleep(for: .milliseconds(50))
+
+        #expect(tabRepo.saveCalled)
+        #expect(tabRepo.savedTab?.draft.url == "https://updated.example.com")
     }
 }

@@ -17,6 +17,7 @@ struct RequestEditorViewModelTests {
         let actualTab = tab ?? Tab(
             id: UUID(), linkedRequestId: nil,
             draft: RequestDraft.empty(in: collectionId),
+            originalDraft: nil,
             sortIndex: 0, isActive: true, createdAt: Date()
         )
         return RequestEditorViewModel(

@@ -21,6 +21,7 @@ struct ContentView: View {
         let tab = Tab(
             id: UUID(), linkedRequestId: nil,
             draft: RequestDraft.empty(in: collectionId),
+            originalDraft: nil,
             sortIndex: 0, isActive: true, createdAt: Date()
         )
         viewModel = container.makeRequestEditorViewModel(draft: tab.draft, tab: tab)

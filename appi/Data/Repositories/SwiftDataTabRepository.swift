@@ -16,6 +16,7 @@ actor SwiftDataTabRepository: TabRepository {
         if let existing = try modelContext.fetch(descriptor).first {
             existing.linkedRequestId = tab.linkedRequestId
             existing.draftData = (try? JSONEncoder().encode(tab.draft)) ?? Data()
+            existing.originalDraftData = tab.originalDraft.flatMap { try? JSONEncoder().encode($0) }
             existing.sortIndex = tab.sortIndex
             existing.isActive = tab.isActive
         } else {

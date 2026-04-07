@@ -91,4 +91,75 @@ final class CollectionTreeViewModel {
             onRequestSelected?(request)
         }
     }
+
+    func createCollection(name: String, parentId: UUID?) async {
+        let auth: AuthConfig = parentId == nil ? .none : .inheritFromParent
+        let collection = Collection(
+            id: UUID(), name: name, parentId: parentId,
+            sortIndex: collections.filter({ $0.parentId == parentId }).count,
+            workspaceId: workspaceId, auth: auth,
+            createdAt: Date(), updatedAt: Date()
+        )
+        do {
+            try await collectionRepository.save(collection)
+            await loadTree()
+        } catch {}
+    }
+
+    func createRequest(in collectionId: UUID) async {
+        let sortIndex = requests.filter { $0.collectionId == collectionId }.count
+        let request = Request(
+            id: UUID(), name: "New Request", method: .get,
+            url: "", headers: [], body: .none,
+            auth: .inheritFromParent, collectionId: collectionId,
+            sortIndex: sortIndex, createdAt: Date(), updatedAt: Date()
+        )
+        do {
+            try await requestRepository.save(request)
+            await loadTree()
+        } catch {}
+    }
+
+    func renameCollection(_ id: UUID, to newName: String) async {
+        guard var collection = collections.first(where: { $0.id == id }) else { return }
+        collection.name = newName
+        collection.updatedAt = Date()
+        do {
+            try await collectionRepository.save(collection)
+            await loadTree()
+        } catch {}
+    }
+
+    func renameRequest(_ id: UUID, to newName: String) async {
+        guard var request = requests.first(where: { $0.id == id }) else { return }
+        request.name = newName
+        request.updatedAt = Date()
+        do {
+            try await requestRepository.save(request)
+            await loadTree()
+        } catch {}
+    }
+
+    func deleteCollection(_ collection: Collection) async {
+        do {
+            try await collectionRepository.delete(collection)
+            try await tabRepository.cleanupOrphanedLinks()
+            await loadTree()
+        } catch {}
+    }
+
+    func deleteRequest(_ request: Request) async {
+        do {
+            try await requestRepository.delete(request)
+            try await tabRepository.cleanupOrphanedLinks()
+            await loadTree()
+        } catch {}
+    }
+
+    func duplicateRequest(_ request: Request) async {
+        do {
+            _ = try await requestRepository.duplicate(request)
+            await loadTree()
+        } catch {}
+    }
 }

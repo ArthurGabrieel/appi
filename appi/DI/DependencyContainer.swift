@@ -42,4 +42,20 @@ final class DependencyContainer {
             authResolver: authResolver
         )
     }
+
+    func makeCollectionTreeViewModel(workspaceId: UUID) -> CollectionTreeViewModel {
+        CollectionTreeViewModel(
+            workspaceId: workspaceId,
+            collectionRepository: collectionRepository,
+            requestRepository: requestRepository,
+            tabRepository: tabRepository
+        )
+    }
+
+    func makeTabBarViewModel() -> TabBarViewModel {
+        TabBarViewModel(
+            tabRepository: tabRepository,
+            requestRepository: requestRepository
+        )
+    }
 }

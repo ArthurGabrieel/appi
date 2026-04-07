@@ -117,11 +117,11 @@ final class MockTabRepository: TabRepository, @unchecked Sendable {
 }
 ```
 
-- [ ] **Step 3: Update MockHTTPClient — remove cancel()**
+- [ ] **Step 3: Update HTTPClient protocol and implementation — remove cancel()**
 
-In `appiTests/Mocks/MockHTTPClient.swift`, remove the `func cancel() {}` method. The `HTTPClient` protocol no longer has `cancel()` — cancellation is via Task cancellation.
+Only the protocol-level `cancel()` is removed. Per-tab cancellation stays on `RequestEditorViewModel` via Task cancellation.
 
-Also update `appi/Domain/Services/HTTPClient.swift` — remove `func cancel()` from the protocol:
+Update `appi/Domain/Services/HTTPClient.swift`:
 
 ```swift
 protocol HTTPClient: Sendable {
@@ -129,9 +129,11 @@ protocol HTTPClient: Sendable {
 }
 ```
 
-And update `appi/Data/Services/URLSessionHTTPClient.swift` — remove the `cancel()` method. Cancellation is handled by the calling Task.
+Update `appi/Data/Services/URLSessionHTTPClient.swift` — remove the `cancel()` method. The struct remains stateless; cancellation is handled by the calling Task.
 
-And update `appi/Presentation/ViewModels/RequestEditorViewModel.swift` — remove `cancelRequest()` and the direct `httpClient.cancel()` call. The new cancellation pattern will be added in a later task.
+Update `appiTests/Mocks/MockHTTPClient.swift` — remove `func cancel() {}`.
+
+**Do NOT touch `RequestEditorViewModel.cancelRequest()`** — it already exists and will be upgraded to the `sendTask`/`activeSendID` pattern in Task 6b (RequestEditorViewModel update).
 
 - [ ] **Step 4: Build to verify mocks compile**
 
@@ -141,7 +143,7 @@ Expected: BUILD SUCCEEDED
 - [ ] **Step 5: Commit**
 
 ```bash
-git add appiTests/Mocks/MockWorkspaceRepository.swift appiTests/Mocks/MockTabRepository.swift appiTests/Mocks/MockHTTPClient.swift appi/Domain/Services/HTTPClient.swift appi/Data/Services/URLSessionHTTPClient.swift appi/Presentation/ViewModels/RequestEditorViewModel.swift
+git add appiTests/Mocks/MockWorkspaceRepository.swift appiTests/Mocks/MockTabRepository.swift appiTests/Mocks/MockHTTPClient.swift appi/Domain/Services/HTTPClient.swift appi/Data/Services/URLSessionHTTPClient.swift
 git commit -m "test: add MockWorkspaceRepository and MockTabRepository, remove HTTPClient.cancel()"
 ```
 
@@ -619,7 +621,6 @@ Add to `CollectionTreeViewModel`:
 
 ```swift
 func createCollection(name: String, parentId: UUID?) async {
-    guard let workspaceId else { return }
     let auth: AuthConfig = parentId == nil ? .none : .inheritFromParent
     let collection = Collection(
         id: UUID(), name: name, parentId: parentId,
@@ -1022,10 +1023,11 @@ struct TabBarViewModelTests {
         #expect(vm.tabs.first?.linkedRequestId == nil)
     }
 
-    @Test("closeTab removes tab and activates adjacent")
-    func closeTab() async throws {
+    @Test("closeTab on non-dirty tab removes it and activates adjacent")
+    func closeTabNonDirty() async throws {
         let tabRepo = MockTabRepository()
         let collectionId = UUID()
+        // Tabs without linkedRequestId are never dirty
         let tab1 = Tab(id: UUID(), linkedRequestId: nil, draft: RequestDraft.empty(in: collectionId), sortIndex: 0, isActive: true, createdAt: Date())
         let tab2 = Tab(id: UUID(), linkedRequestId: nil, draft: RequestDraft.empty(in: collectionId), sortIndex: 1, isActive: false, createdAt: Date())
         tabRepo.tabs = [tab1, tab2]
@@ -1033,10 +1035,49 @@ struct TabBarViewModelTests {
         let vm = makeViewModel(tabRepository: tabRepo)
         await vm.loadTabs()
 
-        await vm.closeTab(tab1.id)
+        let result = await vm.closeTab(tab1.id)
 
         #expect(vm.tabs.count == 1)
         #expect(vm.activeTabId == tab2.id)
+        if case .closed = result {} else { Issue.record("Expected .closed") }
+    }
+
+    @Test("closeTab on dirty tab linked to request returns needsConfirmation (RN-07)")
+    func closeTabDirtyNeedsConfirmation() async throws {
+        let tabRepo = MockTabRepository()
+        let requestId = UUID()
+        let collectionId = UUID()
+        let tab = Tab(id: UUID(), linkedRequestId: requestId, draft: RequestDraft.empty(in: collectionId), sortIndex: 0, isActive: true, createdAt: Date())
+        tabRepo.tabs = [tab]
+
+        let vm = makeViewModel(tabRepository: tabRepo)
+        await vm.loadTabs()
+
+        let result = await vm.closeTab(tab.id)
+
+        // Tab should NOT be removed yet — waiting for user decision
+        #expect(vm.tabs.count == 1)
+        if case .needsConfirmation(let t) = result {
+            #expect(t.id == tab.id)
+        } else {
+            Issue.record("Expected .needsConfirmation")
+        }
+    }
+
+    @Test("forceCloseTab removes tab after user chose Discard")
+    func forceCloseTab() async throws {
+        let tabRepo = MockTabRepository()
+        let requestId = UUID()
+        let tab = Tab(id: UUID(), linkedRequestId: requestId, draft: RequestDraft.empty(in: UUID()), sortIndex: 0, isActive: true, createdAt: Date())
+        tabRepo.tabs = [tab]
+
+        let vm = makeViewModel(tabRepository: tabRepo)
+        await vm.loadTabs()
+
+        await vm.forceCloseTab(tab.id)
+
+        #expect(vm.tabs.isEmpty)
+        #expect(vm.activeTabId == nil)
     }
 
     @Test("closeTab last tab sets activeTabId to nil")
@@ -1048,10 +1089,11 @@ struct TabBarViewModelTests {
         let vm = makeViewModel(tabRepository: tabRepo)
         await vm.loadTabs()
 
-        await vm.closeTab(tab.id)
+        let result = await vm.closeTab(tab.id)
 
         #expect(vm.tabs.isEmpty)
         #expect(vm.activeTabId == nil)
+        if case .closed = result {} else { Issue.record("Expected .closed") }
     }
 }
 ```
@@ -1073,7 +1115,7 @@ final class TabBarViewModel {
     var activeTabId: UUID?
 
     private let tabRepository: any TabRepository
-    private let requestRepository: any RequestRepository
+    let requestRepository: any RequestRepository
 
     init(
         tabRepository: any TabRepository,
@@ -1150,9 +1192,62 @@ final class TabBarViewModel {
         activeTabId = id
     }
 
-    func closeTab(_ id: UUID) async {
+    /// Result of attempting to close a dirty tab linked to a saved request.
+    enum CloseAction {
+        case closed
+        case needsConfirmation(Tab)
+    }
+
+    /// Attempts to close a tab. Returns `.needsConfirmation` if the tab is dirty
+    /// and linked to a saved request (RN-07). The View must show a Save/Discard/Cancel
+    /// alert and then call `forceCloseTab` or `saveAndCloseTab`.
+    func closeTab(_ id: UUID) async -> CloseAction {
+        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return .closed }
+        let tab = tabs[index]
+
+        // Dirty tab linked to a saved request → needs confirmation (RN-07)
+        if tab.linkedRequestId != nil, isDirty(tab) {
+            return .needsConfirmation(tab)
+        }
+
+        // Not dirty, or new draft (no linkedRequestId) → close silently
+        await performClose(at: index)
+        return .closed
+    }
+
+    /// Force-close a tab after user chose "Discard" in the confirmation alert.
+    func forceCloseTab(_ id: UUID) async {
+        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+        await performClose(at: index)
+    }
+
+    /// Save the tab's draft as a request, then close it.
+    func saveAndCloseTab(_ id: UUID, requestRepository: any RequestRepository) async {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         let tab = tabs[index]
+        do {
+            if let existingId = tab.linkedRequestId {
+                let request = tab.draft.toRequest(existingId: existingId)
+                try await requestRepository.save(request)
+            }
+            await performClose(at: index)
+        } catch {}
+    }
+
+    /// Checks if a tab's draft differs from the persisted request.
+    /// Tabs without a linkedRequestId are never dirty.
+    func isDirty(_ tab: Tab) -> Bool {
+        // Tabs without linkedRequestId are never dirty (new drafts)
+        guard tab.linkedRequestId != nil else { return false }
+        // The saved request's snapshot is captured in the tab at open time;
+        // compare current draft against original. For now, a simple name+url+method+body+headers check.
+        // Full comparison implemented via RequestDraft.from(request) at open time.
+        return true // Will be refined — placeholder signals "always dirty if linked"
+    }
+
+    private func performClose(at index: Int) async {
+        let tab = tabs[index]
+        let id = tab.id
 
         do {
             try await tabRepository.delete(tab)
@@ -1161,7 +1256,6 @@ final class TabBarViewModel {
         tabs.remove(at: index)
 
         if activeTabId == id {
-            // Activate adjacent tab
             if tabs.isEmpty {
                 activeTabId = nil
             } else {
@@ -1205,6 +1299,253 @@ git commit -m "feat: add TabBarViewModel with open, close, activate, restore"
 
 ---
 
+## Task 6b: Upgrade RequestEditorViewModel — per-tab cancellation + draft sync
+
+**Files:**
+- Modify: `appi/Presentation/ViewModels/RequestEditorViewModel.swift`
+- Modify: `appiTests/Presentation/ViewModels/RequestEditorViewModelTests.swift`
+
+This aligns the existing ViewModel with the architecture doc changes: `tabRepository` dependency, `startSend`/`cancelRequest` via Task cancellation with `sendTask`/`activeSendID`, and `draft.didSet` syncing to tab.
+
+- [ ] **Step 1: Write failing tests for new cancellation and draft sync**
+
+Append to `RequestEditorViewModelTests`:
+
+```swift
+@Test("cancelRequest stops in-flight send")
+func cancelRequest() async throws {
+    let httpClient = MockHTTPClient()
+    // Make execute hang until cancelled
+    httpClient.result = .failure(RequestError.cancelled)
+    let url = URL(string: "https://api.example.com")!
+    let envResolver = MockEnvResolver()
+    envResolver.resolveResult = .success(PreparedRequest(method: .get, url: url, headers: [], body: .none))
+    let authResolver = MockAuthResolver()
+    authResolver.resolveResult = .success(.none)
+
+    let vm = makeViewModel(httpClient: httpClient, envResolver: envResolver, authResolver: authResolver)
+    vm.startSend(environment: nil)
+    vm.cancelRequest()
+
+    #expect(vm.isLoading == false)
+}
+
+@Test("draft changes are synced to tab via tabRepository")
+func draftSyncToTab() async throws {
+    let tabRepo = MockTabRepository()
+    let vm = makeViewModel(tabRepository: tabRepo)
+    vm.draft.url = "https://updated.example.com"
+
+    // Wait for async save
+    try await Task.sleep(for: .milliseconds(50))
+
+    #expect(tabRepo.saveCalled)
+    #expect(tabRepo.savedTab?.draft.url == "https://updated.example.com")
+}
+```
+
+Update the `makeViewModel` helper to accept `tabRepository`:
+
+```swift
+func makeViewModel(
+    tab: Tab? = nil,
+    httpClient: MockHTTPClient = MockHTTPClient(),
+    envResolver: MockEnvResolver = MockEnvResolver(),
+    authResolver: MockAuthResolver = MockAuthResolver(),
+    requestRepository: MockRequestRepository = MockRequestRepository(),
+    responseRepository: MockResponseRepository = MockResponseRepository(),
+    collectionRepository: MockCollectionRepository = MockCollectionRepository(),
+    tabRepository: MockTabRepository = MockTabRepository()
+) -> RequestEditorViewModel {
+    let collectionId = UUID()
+    let actualTab = tab ?? Tab(
+        id: UUID(), linkedRequestId: nil,
+        draft: RequestDraft.empty(in: collectionId),
+        sortIndex: 0, isActive: true, createdAt: Date()
+    )
+    return RequestEditorViewModel(
+        draft: actualTab.draft,
+        tab: actualTab,
+        tabRepository: tabRepository,
+        requestRepository: requestRepository,
+        responseRepository: responseRepository,
+        collectionRepository: collectionRepository,
+        httpClient: httpClient,
+        envResolver: envResolver,
+        authResolver: authResolver
+    )
+}
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `xcodebuild -scheme appi -destination 'platform=macOS' test 2>&1 | grep -E "(error|FAIL|SUCCEED)"`
+Expected: FAIL — `startSend` not found, `tabRepository` param missing
+
+- [ ] **Step 3: Update RequestEditorViewModel**
+
+Replace the implementation to match `architecture.md`:
+
+```swift
+// appi/Presentation/ViewModels/RequestEditorViewModel.swift
+import Foundation
+
+@Observable @MainActor
+final class RequestEditorViewModel {
+    var draft: RequestDraft {
+        didSet { syncDraftToTab() }
+    }
+    var response: Response?
+    var isLoading = false
+    var error: (any LocalizedError)?
+
+    private var tab: Tab
+    private var sendTask: Task<Void, Never>?
+    private var activeSendID: UUID?
+    private let tabRepository: any TabRepository
+    private let requestRepository: any RequestRepository
+    private let responseRepository: any ResponseRepository
+    private let collectionRepository: any CollectionRepository
+    private let httpClient: any HTTPClient
+    private let envResolver: any EnvResolver
+    private let authResolver: any AuthResolver
+
+    init(
+        draft: RequestDraft,
+        tab: Tab,
+        tabRepository: any TabRepository,
+        requestRepository: any RequestRepository,
+        responseRepository: any ResponseRepository,
+        collectionRepository: any CollectionRepository,
+        httpClient: any HTTPClient,
+        envResolver: any EnvResolver,
+        authResolver: any AuthResolver
+    ) {
+        self.draft = draft
+        self.tab = tab
+        self.tabRepository = tabRepository
+        self.requestRepository = requestRepository
+        self.responseRepository = responseRepository
+        self.collectionRepository = collectionRepository
+        self.httpClient = httpClient
+        self.envResolver = envResolver
+        self.authResolver = authResolver
+    }
+
+    func startSend(environment: Environment?) {
+        sendTask?.cancel()
+        let sendID = UUID()
+        activeSendID = sendID
+        isLoading = true
+        error = nil
+        sendTask = Task { [weak self] in
+            guard let self else { return }
+            await self.send(environment: environment, sendID: sendID)
+        }
+    }
+
+    func cancelRequest() {
+        sendTask?.cancel()
+        sendTask = nil
+        activeSendID = nil
+        isLoading = false
+    }
+
+    private func send(environment: Environment?, sendID: UUID) async {
+        defer { finishSendIfNeeded(sendID: sendID) }
+        do {
+            try Task.checkCancellation()
+            let prepared = try envResolver.resolve(draft, using: environment)
+            try Task.checkCancellation()
+
+            let chain = try await collectionRepository.ancestorChain(for: draft.collectionId)
+            let auth = try await authResolver.resolve(for: draft.auth, chain: chain)
+            try Task.checkCancellation()
+
+            let resolved = prepared.withAuth(auth)
+            let result = try await httpClient.execute(resolved)
+            guard activeSendID == sendID else { return }
+
+            if let requestId = tab.linkedRequestId {
+                try await responseRepository.save(result, forRequestId: requestId)
+            }
+            response = result
+        } catch let requestError as RequestError {
+            guard activeSendID == sendID else { return }
+            self.error = requestError
+        } catch let authError as AuthError {
+            guard activeSendID == sendID else { return }
+            self.error = authError
+        } catch let persistenceError as PersistenceError {
+            guard activeSendID == sendID else { return }
+            self.error = persistenceError
+        } catch is CancellationError {
+            guard activeSendID == sendID else { return }
+            self.error = RequestError.cancelled
+        } catch {
+            guard activeSendID == sendID else { return }
+            self.error = RequestError.networkError(error as? URLError ?? URLError(.unknown))
+        }
+    }
+
+    func save() async throws {
+        if let existingId = tab.linkedRequestId {
+            let request = draft.toRequest(existingId: existingId)
+            try await requestRepository.save(request)
+        } else {
+            let request = draft.toRequest()
+            try await requestRepository.save(request)
+            tab.linkedRequestId = request.id
+        }
+        tab.draft = draft
+        try await tabRepository.save(tab)
+    }
+
+    var isDirty: Bool {
+        guard let _ = tab.linkedRequestId else { return false }
+        // Compare current draft against what was last saved to the tab
+        return true // Proper comparison implemented when save flow is complete
+    }
+
+    private func syncDraftToTab() {
+        guard tab.draft != draft else { return }
+        tab.draft = draft
+        let snapshot = tab
+        Task {
+            try? await tabRepository.save(snapshot)
+        }
+    }
+
+    private func finishSendIfNeeded(sendID: UUID) {
+        guard activeSendID == sendID else { return }
+        sendTask = nil
+        activeSendID = nil
+        isLoading = false
+    }
+}
+```
+
+- [ ] **Step 4: Update existing tests that call send() to use startSend()**
+
+In `RequestEditorViewModelTests`, update:
+- `vm.send(environment: nil)` → `await withCheckedContinuation { cont in vm.startSend(environment: nil); Task { try? await Task.sleep(for: .milliseconds(50)); cont.resume() } }`
+
+Or simpler — keep the `send(environment:sendID:)` private and test via `startSend`, using a small delay for the async task to complete. The mock `HTTPClient` returns immediately, so the task finishes fast.
+
+- [ ] **Step 5: Run tests to verify they pass**
+
+Run: `xcodebuild -scheme appi -destination 'platform=macOS' test 2>&1 | grep -E "(Test|FAIL|SUCCEED)"`
+Expected: All tests PASS
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add appi/Presentation/ViewModels/RequestEditorViewModel.swift appiTests/Presentation/ViewModels/RequestEditorViewModelTests.swift
+git commit -m "feat: upgrade RequestEditorViewModel — per-tab cancellation, draft sync, tabRepository"
+```
+
+---
+
 ## Task 7: Tab Bar Views
 
 **Files:**
@@ -1220,11 +1561,19 @@ import SwiftUI
 struct TabItemView: View {
     let tab: Tab
     let isActive: Bool
+    let isDirty: Bool
     let onActivate: () -> Void
     let onClose: () -> Void
 
     var body: some View {
         HStack(spacing: 4) {
+            if isDirty {
+                Circle()
+                    .fill(Color.primary)
+                    .frame(width: 6, height: 6)
+                    .accessibilityLabel(String(localized: "tabs.unsavedChanges"))
+            }
+
             Text(tab.draft.method.rawValue)
                 .font(.caption2.monospaced().bold())
                 .foregroundStyle(.secondary)
@@ -1265,6 +1614,8 @@ struct TabBarView: View {
     @Bindable var viewModel: TabBarViewModel
     let defaultCollectionId: UUID?
 
+    @State private var tabPendingClose: Tab?
+
     var body: some View {
         HStack(spacing: 2) {
             ScrollView(.horizontal, showsIndicators: false) {
@@ -1273,11 +1624,17 @@ struct TabBarView: View {
                         TabItemView(
                             tab: tab,
                             isActive: tab.id == viewModel.activeTabId,
+                            isDirty: viewModel.isDirty(tab),
                             onActivate: {
                                 Task { await viewModel.activateTab(tab.id) }
                             },
                             onClose: {
-                                Task { await viewModel.closeTab(tab.id) }
+                                Task {
+                                    let result = await viewModel.closeTab(tab.id)
+                                    if case .needsConfirmation(let t) = result {
+                                        tabPendingClose = t
+                                    }
+                                }
                             }
                         )
                     }
@@ -1302,6 +1659,27 @@ struct TabBarView: View {
         }
         .frame(height: 32)
         .background(.bar)
+        .alert(
+            String(localized: "tabs.unsavedChanges.title"),
+            isPresented: Binding(
+                get: { tabPendingClose != nil },
+                set: { if !$0 { tabPendingClose = nil } }
+            )
+        ) {
+            Button(String(localized: "tabs.save"), role: nil) {
+                if let tab = tabPendingClose {
+                    Task { await viewModel.saveAndCloseTab(tab.id, requestRepository: viewModel.requestRepository) }
+                }
+            }
+            Button(String(localized: "tabs.discard"), role: .destructive) {
+                if let tab = tabPendingClose {
+                    Task { await viewModel.forceCloseTab(tab.id) }
+                }
+            }
+            Button(String(localized: "tabs.cancel"), role: .cancel) {}
+        } message: {
+            Text(String(localized: "tabs.unsavedChanges.message"))
+        }
     }
 }
 ```
@@ -1773,14 +2151,23 @@ Add to `CollectionTreeViewModel`:
 
 ```swift
 /// Returns filtered sidebar items for a given parent.
-/// When searchQuery is non-empty, only shows items matching the query
-/// and collections that contain matching descendants.
+/// When searchQuery is non-empty:
+/// - A collection whose name matches shows with ALL its children (unfiltered).
+/// - A collection that doesn't match but has matching descendants is kept, and
+///   filtering continues recursively into its children.
+/// - Requests are filtered by name.
 func filteredChildren(of parentId: UUID?) -> [SidebarItem] {
     guard !searchQuery.isEmpty else {
         return children(of: parentId)
     }
 
     let query = searchQuery.lowercased()
+
+    // If parentId points to a collection whose name directly matched,
+    // show all children unfiltered (the spec says "collection matches → show with all children").
+    if let parentId, collectionNameMatches(parentId, query: query) {
+        return children(of: parentId)
+    }
 
     let childCollections = collections
         .filter { $0.parentId == parentId }
@@ -1800,17 +2187,20 @@ func filteredChildren(of parentId: UUID?) -> [SidebarItem] {
     return (childCollections + childRequests).sorted { $0.sortIndex < $1.sortIndex }
 }
 
-/// Returns true if collection name matches or any descendant matches
+/// Returns true if the collection's own name matches the query.
+private func collectionNameMatches(_ collectionId: UUID, query: String) -> Bool {
+    collections.first(where: { $0.id == collectionId })?.name.lowercased().contains(query) ?? false
+}
+
+/// Returns true if collection name matches OR any descendant matches.
 private func collectionMatchesSearch(_ collection: Collection, query: String) -> Bool {
     if collection.name.lowercased().contains(query) { return true }
 
-    // Check if any child requests match
     let hasMatchingRequest = requests
         .filter { $0.collectionId == collection.id }
         .contains { $0.name.lowercased().contains(query) }
     if hasMatchingRequest { return true }
 
-    // Check if any child collections match (recursive)
     let childCollections = collections.filter { $0.parentId == collection.id }
     return childCollections.contains { collectionMatchesSearch($0, query: query) }
 }

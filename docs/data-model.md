@@ -145,11 +145,22 @@ UI → RequestEditorViewModel.save()
    → RequestRepository.save(request)
    → SwiftDataRequestRepository: Request → RequestModel → context.insert → context.save
    → tab.linkedRequestId = request.id
+   → tab.draft = draft
+   → TabRepository.save(tab)
+```
+
+### Editar draft em tab
+```
+UI → edição em RequestEditorView
+   → RequestEditorViewModel.draft é mutado
+   → RequestEditorViewModel sincroniza draft → tab.draft
+   → TabRepository.save(tab)
+   → Na reabertura do app, TabRepository.fetchAll() restaura o draft persistido
 ```
 
 ### Executar request
 ```
-UI → RequestEditorViewModel.send(environment: activeEnvironment)
+UI → RequestEditorViewModel.startSend(environment: activeEnvironment)
    → EnvironmentViewModel fornece o environment ativo (único com isActive = true)
    → EnvResolver.resolve(draft, using: activeEnvironment) → PreparedRequest
      (substitui {{vars}} com variáveis habilitadas do environment, valida URL)
@@ -178,6 +189,16 @@ UI → CollectionTreeViewModel.delete(collection)
    → TabRepository.cleanupOrphanedLinks()
      → Tabs com linkedRequestId apontando para requests deletados → linkedRequestId = nil
 ```
+
+### Deletar request
+```
+UI → CollectionTreeViewModel.delete(request)
+   → RequestRepository.delete(request)
+   → TabRepository.cleanupOrphanedLinks()
+     → Tabs com linkedRequestId apontando para o request deletado → linkedRequestId = nil
+```
+
+> O dono desse fluxo é o `CollectionTreeViewModel`, que coordena deleções na sidebar e, em seguida, executa `TabRepository.cleanupOrphanedLinks()` para manter RN-17 consistente.
 
 ---
 

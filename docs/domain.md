@@ -143,6 +143,7 @@ Entidade persistida. Restauração completa ao reabrir o app (ver architecture.m
 
 **Regras**
 - Restauração completa ao reabrir o app, incluindo drafts com mudanças não salvas.
+- Mudanças no draft ativo são espelhadas em `tab.draft` e persistidas via `TabRepository.save()` pelo fluxo de edição.
 - `isDirty = true` quando draft difere do request salvo.
 - Fechar tab dirty com `linkedRequestId != nil` exige confirmação (RN-07).
 - Fechar tab dirty sem `linkedRequestId` descarta silenciosamente.

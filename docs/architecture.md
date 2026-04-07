@@ -91,7 +91,7 @@ final class DependencyContainer {
             modelContainer: modelContainer,
             keychainService: keychain
         )
-        self.httpClient = URLSessionHTTPClient()
+        self.httpClient = URLSessionHTTPClient() // seguro compartilhar: stateless, sem cancelamento global
         self.envResolver = DefaultEnvResolver()
         self.authService = PKCEAuthService(keychainService: keychain)
         self.authResolver = DefaultAuthResolver(authService: self.authService)
@@ -104,6 +104,7 @@ final class DependencyContainer {
         RequestEditorViewModel(
             draft: draft,
             tab: tab,
+            tabRepository: tabRepository,
             requestRepository: requestRepository,
             responseRepository: responseRepository,
             collectionRepository: collectionRepository,
@@ -113,15 +114,18 @@ final class DependencyContainer {
         )
     }
     
-    func makeCollectionTreeViewModel() -> CollectionTreeViewModel {
+    func makeCollectionTreeViewModel(workspaceId: UUID) -> CollectionTreeViewModel {
         CollectionTreeViewModel(
+            workspaceId: workspaceId,
             collectionRepository: collectionRepository,
-            requestRepository: requestRepository
+            requestRepository: requestRepository,
+            tabRepository: tabRepository
         )
     }
     
-    func makeEnvironmentViewModel() -> EnvironmentViewModel {
+    func makeEnvironmentViewModel(workspaceId: UUID) -> EnvironmentViewModel {
         EnvironmentViewModel(
+            workspaceId: workspaceId,
             environmentRepository: environmentRepository
         )
     }
@@ -155,6 +159,8 @@ struct AppiApp: App {
 
 Views acessam o container via `@Environment(DependencyContainer.self)` e chamam factory methods para criar ViewModels.
 
+> `workspaceId` não é inferido dentro dos ViewModels. O bootstrap inicial (`ContentView` ou um `RootViewModel`) resolve o workspace atual uma vez: busca o workspace default no `WorkspaceRepository`, cria se não existir no first launch, guarda `currentWorkspaceId` e passa esse ID para as factories que carregam collections e environments. Mesmo com um único workspace na v1.0, o ID continua explícito para manter os contratos consistentes.
+
 ---
 
 ## 5. Concorrência
@@ -164,7 +170,7 @@ Views acessam o container via `@Environment(DependencyContainer.self)` e chamam 
 | Views | `@MainActor` (implícito SwiftUI) | Atualização de UI |
 | ViewModels | `@MainActor` | Alimentam Views, publicam estado observável |
 | Repositories | `@ModelActor` | `ModelContext` isolado, operações em background sem bloquear UI |
-| HTTPClient | Struct stateless | `URLSession` é thread-safe. Cancelamento via `URLSessionTask.cancel()` |
+| HTTPClient | Struct stateless | `URLSession` é thread-safe. Cancelamento é request-scoped via cancelamento da `Task` chamadora; o client não mantém task global |
 | EnvResolver | Struct stateless | Sem estado mutável, sem restrição de actor |
 | AuthResolver | Struct com dependência de AuthService | Async por causa do refresh de token; sem estado próprio |
 | AuthService | Actor | Gerencia estado de tokens, acesso ao Keychain serializado |
@@ -267,9 +273,9 @@ protocol TabRepository {
 
 ```swift
 // Executa o URLRequest e retorna Response — sem persistência
+// Cancelamento é responsabilidade do chamador (ex: ViewModel), via Task cancellation
 protocol HTTPClient {
     func execute(_ request: ResolvedRequest) async throws -> Response
-    func cancel()
 }
 
 // Substitui {{variáveis}} e valida URL — stateless, sem side effects
@@ -327,12 +333,17 @@ protocol ExportSerializer {
 // Presentation/ViewModels/RequestEditorViewModel.swift
 @Observable @MainActor
 final class RequestEditorViewModel {
-    var draft: RequestDraft
+    var draft: RequestDraft {
+        didSet { syncDraftToTab() }
+    }
     var response: Response?
     var isLoading: Bool = false
     var error: (any LocalizedError)?
     
-    private let tab: Tab
+    private var tab: Tab
+    private var sendTask: Task<Void, Never>?
+    private var activeSendID: UUID?
+    private let tabRepository: TabRepository
     private let requestRepository: RequestRepository
     private let responseRepository: ResponseRepository
     private let collectionRepository: CollectionRepository
@@ -343,6 +354,7 @@ final class RequestEditorViewModel {
     init(
         draft: RequestDraft,
         tab: Tab,
+        tabRepository: TabRepository,
         requestRepository: RequestRepository,
         responseRepository: ResponseRepository,
         collectionRepository: CollectionRepository,
@@ -352,6 +364,7 @@ final class RequestEditorViewModel {
     ) {
         self.draft = draft
         self.tab = tab
+        self.tabRepository = tabRepository
         self.requestRepository = requestRepository
         self.responseRepository = responseRepository
         self.collectionRepository = collectionRepository
@@ -360,39 +373,69 @@ final class RequestEditorViewModel {
         self.authResolver = authResolver
     }
 
-    func send(environment: Environment?) async {
+    func startSend(environment: Environment?) {
+        sendTask?.cancel()
+        let sendID = UUID()
+        activeSendID = sendID
         isLoading = true
-        defer { isLoading = false }
+        error = nil
+        sendTask = Task { [weak self] in
+            guard let self else { return }
+            await self.send(environment: environment, sendID: sendID)
+        }
+    }
+
+    func cancelRequest() {
+        sendTask?.cancel()
+        sendTask = nil
+        activeSendID = nil
+        isLoading = false
+    }
+
+    private func send(environment: Environment?, sendID: UUID) async {
+        defer { finishSendIfNeeded(sendID: sendID) }
         do {
+            try Task.checkCancellation()
+
             // 1. Resolve variáveis + valida URL → PreparedRequest (sem auth)
             //    Lança RequestError.invalidURL se URL inválida após substituição (RN-04)
             let prepared = try envResolver.resolve(draft, using: environment)
+            try Task.checkCancellation()
             
             // 2. Resolve auth chain completa → ResolvedAuth
             //    Para OAuth2: carrega token do Keychain e faz refresh se expirado (RN-15)
             //    Lança AuthError.tokenExpired se refresh falhar → UI mostra "Re-authorize"
             let chain = try await collectionRepository.ancestorChain(for: draft.collectionId)
             let auth = try await authResolver.resolve(for: draft.auth, chain: chain)
+            try Task.checkCancellation()
             
             // 3. Combina → ResolvedRequest (completo)
             let resolved = prepared.withAuth(auth)
             
             // 4. Executa
             let result = try await httpClient.execute(resolved)
+            guard activeSendID == sendID else { return }
             
-            // 4. Salva no histórico (apenas se vinculado a request existente)
+            // 5. Salva no histórico (apenas se vinculado a request existente)
             if let requestId = tab.linkedRequestId {
                 try await responseRepository.save(result, forRequestId: requestId)
             }
             
             response = result
         } catch let requestError as RequestError {
+            guard activeSendID == sendID else { return }
             self.error = requestError          // URL inválida, rede, timeout, SSL
         } catch let authError as AuthError {
+            guard activeSendID == sendID else { return }
             self.error = authError             // token expirado, refresh falhou
         } catch let persistenceError as PersistenceError {
+            guard activeSendID == sendID else { return }
             self.error = persistenceError      // ancestorChain ou save falharam
+        } catch is CancellationError {
+            guard activeSendID == sendID else { return }
+            self.error = RequestError.cancelled
         } catch {
+            guard activeSendID == sendID else { return }
             self.error = RequestError.networkError(
                 error as? URLError ?? URLError(.unknown)
             )
@@ -408,9 +451,33 @@ final class RequestEditorViewModel {
             tab.linkedRequestId = request.id
         }
         try await requestRepository.save(request)
+        tab.draft = draft
+        try await tabRepository.save(tab)
+    }
+
+    private func syncDraftToTab() {
+        guard tab.draft != draft else { return }
+        tab.draft = draft
+        let snapshot = tab
+        Task {
+            try? await tabRepository.save(snapshot)
+        }
+    }
+
+    private func finishSendIfNeeded(sendID: UUID) {
+        guard activeSendID == sendID else { return }
+        sendTask = nil
+        activeSendID = nil
+        isLoading = false
     }
 }
 ```
+
+**Contrato importante para Sprint 2:**
+- Cancelamento é por aba: `RequestEditorViewModel` cancela apenas sua própria `sendTask`.
+- `HTTPClient` permanece compartilhado no container porque é stateless.
+- Toda mudança relevante no draft é espelhada em `tab.draft` e persistida via `TabRepository.save(_:)`, garantindo restauração após relaunch.
+- `TabBarViewModel` cuida da coleção de tabs, seleção e restauração; cada `RequestEditorViewModel` cuida da sincronização da sua `Tab` ativa.
 
 ---
 

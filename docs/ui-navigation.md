@@ -101,10 +101,10 @@ Modais / Sheets:
 
 | ViewModel | View(s) | Responsabilidade |
 |---|---|---|
-| `CollectionTreeViewModel` | `SidebarView`, `CollectionTreeView` | CRUD collections/requests, drag-and-drop, busca |
-| `RequestEditorViewModel` | `RequestEditorView`, subviews | Draft editing, send, save |
-| `TabBarViewModel` | `TabBarView`, `TabItemView` | Gestão de tabs, seleção, dirty state, restauração |
-| `EnvironmentViewModel` | `EnvironmentPicker`, `EnvironmentEditorSheet` | CRUD environments, ativar/desativar, variáveis |
+| `CollectionTreeViewModel` | `SidebarView`, `CollectionTreeView` | CRUD collections/requests, drag-and-drop, busca, cleanup de tabs órfãs após delete |
+| `RequestEditorViewModel` | `RequestEditorView`, subviews | Draft editing, sync da tab persistida, send, save, cancel |
+| `TabBarViewModel` | `TabBarView`, `TabItemView` | Gestão de tabs, seleção e restauração |
+| `EnvironmentViewModel` | `EnvironmentPicker`, `EnvironmentEditorSheet` | CRUD environments, ativar/desativar, variáveis, carregados por `workspaceId` explícito |
 | `ResponseViewModel` | `ResponseViewerView`, `ResponseHistoryView` | Response atual, histórico, formatação |
 | `ImportViewModel` | `ImportSheet` | Parse de arquivo, exibição de warnings, confirmação |
 | `ExportViewModel` | `ExportSheet` | Serialização, file picker, opções |
@@ -119,6 +119,7 @@ Modais / Sheets:
 ```
 App abre → Workspace default criado → Collection "My Collection" criada
 → Tab vazia com "New Request" aberta → Foco na URL bar
+→ Bootstrap inicial guarda currentWorkspaceId e o injeta nos ViewModels da sidebar e environments
 ```
 
 ### 4.2 Abrir request existente
@@ -132,6 +133,7 @@ Clique em RequestRow na sidebar
 ### 4.3 Executar request
 ```
 ⌘ Return (ou clique em Send)
+→ RequestEditorViewModel.startSend(environment)
 → Loading spinner no botão Send
 → EnvResolver.resolve(draft, environment)
   → URL vazia ou inválida após substituição? → RequestError.invalidURL → erro na aba de response
@@ -190,7 +192,7 @@ send() → AuthResolver detecta token expirado
 ### Loading state (request em andamento)
 - Botão Send vira "Cancel" com spinner
 - Tab mostra indicador de loading sutil
-- `⌘ .` cancela
+- `⌘ .` cancela apenas o send da tab ativa
 
 ### Error state
 - Erros de request (rede, timeout, SSL, URL inválida): banner na aba de response

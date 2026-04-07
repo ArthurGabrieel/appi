@@ -45,8 +45,10 @@ ViewModels são `@MainActor` e dependem de protocols. Injetar mocks.
 | `send()` — token expirado | Mock `AuthResolver` lançando `AuthError.tokenExpired`. Verificar `error` é `AuthError` |
 | `send()` — salva no histórico | Mock `ResponseRepository`. Verificar `save` chamado com `requestId` correto |
 | `send()` — tab sem linkedRequestId | Verificar que `ResponseRepository.save` **não** é chamado |
+| `cancelRequest()` | Duas tabs enviando ao mesmo tempo → cancelar uma não afeta a outra |
 | `save()` — request novo | Verificar `tab.linkedRequestId` é preenchido após save |
 | `save()` — request existente | Verificar que `toRequest(existingId:)` preserva o ID |
+| Sync do draft para `Tab` | Modificar draft, verificar que `TabRepository.save()` recebe a tab atualizada |
 | `isDirty` | Modificar draft, verificar que isDirty muda |
 
 **Padrão de mock:**
@@ -60,8 +62,6 @@ final class MockHTTPClient: HTTPClient {
         executedRequest = request
         return try result.get()
     }
-
-    func cancel() {}
 }
 ```
 
@@ -105,6 +105,8 @@ func makeInMemoryContainer() throws -> ModelContainer {
 | `DefaultAuthResolver` | Toda cadeia inherit → retorna `.none` | Unitário puro |
 | `DefaultAuthResolver` | OAuth2 com token expirado → tenta refresh | Unitário com mock AuthService |
 | `URLSessionHTTPClient` | Request → Response com status/headers/body | Integração com URLProtocol mock |
+| `URLSessionHTTPClient` | Cancelamento em voo retorna `.cancelled` | Integração com URLProtocol mock |
+| `URLSessionHTTPClient` | Task pré-cancelada não inicia o protocolo mock | Integração com URLProtocol mock |
 | `AppleKeychainService` | save/load/delete round-trip | Integração (Keychain de teste) |
 
 **Mock de URLSession via URLProtocol:**

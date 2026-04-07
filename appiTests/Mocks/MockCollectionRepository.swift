@@ -5,6 +5,7 @@ final class MockCollectionRepository: CollectionRepository, @unchecked Sendable 
     var collections: [Collection] = []
     var ancestorChainResult: [Collection] = []
     var saveCalled = false
+    var ancestorChainError: (any Error)?
 
     func fetchAll(in workspaceId: UUID) async throws -> [Collection] {
         collections.filter { $0.workspaceId == workspaceId }
@@ -26,6 +27,9 @@ final class MockCollectionRepository: CollectionRepository, @unchecked Sendable 
     func move(_ collection: Collection, to parent: Collection?) async throws {}
 
     func ancestorChain(for collectionId: UUID) async throws -> [Collection] {
-        ancestorChainResult
+        if let ancestorChainError {
+            throw ancestorChainError
+        }
+        return ancestorChainResult
     }
 }

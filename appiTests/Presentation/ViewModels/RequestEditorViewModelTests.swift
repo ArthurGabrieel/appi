@@ -6,7 +6,7 @@ import Foundation
 struct RequestEditorViewModelTests {
     func makeViewModel(
         tab: Tab? = nil,
-        httpClient: MockHTTPClient = MockHTTPClient(),
+        httpClient: any HTTPClient = MockHTTPClient(),
         envResolver: MockEnvResolver = MockEnvResolver(),
         authResolver: MockAuthResolver = MockAuthResolver(),
         requestRepository: MockRequestRepository = MockRequestRepository(),
@@ -101,5 +101,79 @@ struct RequestEditorViewModelTests {
 
         #expect(requestRepo.saveCalled)
         #expect(vm.tab.linkedRequestId != nil)
+    }
+
+    @Test("send() preserves persistence errors from repositories")
+    func sendPersistenceError() async {
+        let collectionRepo = MockCollectionRepository()
+        collectionRepo.ancestorChainError = PersistenceError.fetchFailed(NSError(domain: "test", code: 1))
+        let url = URL(string: "https://api.example.com")!
+        let envResolver = MockEnvResolver()
+        envResolver.resolveResult = .success(PreparedRequest(method: .get, url: url, headers: [], body: .none))
+
+        let vm = makeViewModel(envResolver: envResolver, collectionRepository: collectionRepo)
+        await vm.send(environment: nil)
+
+        #expect(vm.response == nil)
+        #expect(vm.error is PersistenceError)
+    }
+
+    @Test("cancelRequest() only cancels the send owned by that view model")
+    func cancelRequestIsScopedToViewModel() async {
+        let firstURL = URL(string: "https://api.example.com/first")!
+        let secondURL = URL(string: "https://api.example.com/second")!
+
+        let authResolver = MockAuthResolver()
+        authResolver.resolveResult = .success(.none)
+        let sharedHTTPClient = MockHTTPClient()
+        sharedHTTPClient.executionDelayNanoseconds = 250_000_000
+        sharedHTTPClient.result = .success(
+            Response(
+                id: UUID(),
+                statusCode: 200,
+                statusMessage: "OK",
+                headers: [],
+                body: Data("{}".utf8),
+                contentType: "application/json",
+                duration: 0.25,
+                size: 2,
+                createdAt: Date()
+            )
+        )
+
+        let firstEnvResolver = MockEnvResolver()
+        firstEnvResolver.resolveResult = .success(
+            PreparedRequest(method: .get, url: firstURL, headers: [], body: .none)
+        )
+        let secondEnvResolver = MockEnvResolver()
+        secondEnvResolver.resolveResult = .success(
+            PreparedRequest(method: .get, url: secondURL, headers: [], body: .none)
+        )
+
+        let firstViewModel = makeViewModel(
+            httpClient: sharedHTTPClient,
+            envResolver: firstEnvResolver,
+            authResolver: authResolver
+        )
+        let secondViewModel = makeViewModel(
+            httpClient: sharedHTTPClient,
+            envResolver: secondEnvResolver,
+            authResolver: authResolver
+        )
+
+        let firstSend = firstViewModel.startSend(environment: nil)
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        let secondSend = secondViewModel.startSend(environment: nil)
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        firstViewModel.cancelRequest()
+
+        await firstSend.value
+        await secondSend.value
+
+        #expect(firstViewModel.response == nil)
+        #expect(firstViewModel.error == nil)
+        #expect(firstViewModel.isLoading == false)
+        #expect(secondViewModel.response?.statusCode == 200)
+        #expect(secondViewModel.error == nil)
     }
 }

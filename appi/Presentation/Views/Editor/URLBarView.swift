@@ -4,7 +4,7 @@ struct URLBarView: View {
     @Binding var method: HTTPMethod
     @Binding var url: String
     let isLoading: Bool
-    let onSend: () async -> Void
+    let onSend: () -> Void
     let onCancel: () -> Void
 
     var body: some View {
@@ -25,7 +25,7 @@ struct URLBarView: View {
                 Button(String(localized: "action.cancel")) { onCancel() }
                     .accessibilityLabel(String(localized: "action.cancel"))
             } else {
-                Button(String(localized: "action.send")) { Task { await onSend() } }
+                Button(String(localized: "action.send")) { onSend() }
                     .buttonStyle(.borderedProminent)
                     .accessibilityLabel(String(localized: "action.send"))
                     .keyboardShortcut(.return, modifiers: .command)

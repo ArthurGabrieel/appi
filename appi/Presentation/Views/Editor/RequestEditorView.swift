@@ -18,7 +18,7 @@ struct RequestEditorView: View {
                     method: $viewModel.draft.method,
                     url: $viewModel.draft.url,
                     isLoading: viewModel.isLoading,
-                    onSend: { await viewModel.send(environment: activeEnvironment) },
+                    onSend: { viewModel.startSend(environment: activeEnvironment) },
                     onCancel: { viewModel.cancelRequest() }
                 )
 

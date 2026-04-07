@@ -53,4 +53,30 @@ struct RequestRepositoryTests {
 
         #expect(fetched.isEmpty)
     }
+
+    @Test("updating an existing request preserves stored sortIndex")
+    func updatePreservesSortIndex() async throws {
+        let container = try makeContainer()
+        let repo = SwiftDataRequestRepository(modelContainer: container)
+        let collectionId = UUID()
+        let requestId = UUID()
+
+        let original = Request(
+            id: requestId, name: "Ordered", method: .get,
+            url: "https://api.example.com/users", headers: [], body: .none,
+            auth: .none, collectionId: collectionId, sortIndex: 7,
+            createdAt: Date(), updatedAt: Date()
+        )
+        try await repo.save(original)
+
+        var draft = RequestDraft.from(original)
+        draft.name = "Ordered Updated"
+        let updated = draft.toRequest(existingId: requestId)
+        try await repo.save(updated)
+
+        let fetched = try await repo.fetchAll(in: collectionId)
+        #expect(fetched.count == 1)
+        #expect(fetched[0].name == "Ordered Updated")
+        #expect(fetched[0].sortIndex == 7)
+    }
 }

@@ -4,39 +4,69 @@ import SwiftData
 @ModelActor
 actor SwiftDataRequestRepository: RequestRepository {
     func fetchAll(in collectionId: UUID) async throws -> [Request] {
-        let predicate = #Predicate<RequestModel> { $0.collectionId == collectionId }
-        let descriptor = FetchDescriptor<RequestModel>(predicate: predicate, sortBy: [SortDescriptor(\.sortIndex)])
-        let models = try modelContext.fetch(descriptor)
-        return models.map { $0.toDomain() }
+        do {
+            let predicate = #Predicate<RequestModel> { $0.collectionId == collectionId }
+            let descriptor = FetchDescriptor<RequestModel>(predicate: predicate, sortBy: [SortDescriptor(\.sortIndex)])
+            let models = try modelContext.fetch(descriptor)
+            return models.map { $0.toDomain() }
+        } catch let error as PersistenceError {
+            throw error
+        } catch {
+            throw PersistenceError.fetchFailed(error)
+        }
     }
 
     func save(_ request: Request) async throws {
-        let id = request.id
-        let predicate = #Predicate<RequestModel> { $0.id == id }
-        let descriptor = FetchDescriptor<RequestModel>(predicate: predicate)
-        if let existing = try modelContext.fetch(descriptor).first {
-            existing.name = request.name
-            existing.method = request.method.rawValue
-            existing.url = request.url
-            existing.headersData = (try? JSONEncoder().encode(request.headers)) ?? Data()
-            existing.bodyData = (try? JSONEncoder().encode(request.body)) ?? Data()
-            existing.authData = (try? JSONEncoder().encode(request.auth)) ?? Data()
-            existing.collectionId = request.collectionId
-            existing.sortIndex = request.sortIndex
-            existing.updatedAt = Date()
-        } else {
-            modelContext.insert(RequestModel(from: request))
+        do {
+            let id = request.id
+            let predicate = #Predicate<RequestModel> { $0.id == id }
+            let descriptor = FetchDescriptor<RequestModel>(predicate: predicate)
+            if let existing = try modelContext.fetch(descriptor).first {
+                existing.name = request.name
+                existing.method = request.method.rawValue
+                existing.url = request.url
+                existing.headersData = (try? JSONEncoder().encode(request.headers)) ?? Data()
+                existing.bodyData = (try? JSONEncoder().encode(request.body)) ?? Data()
+                existing.authData = (try? JSONEncoder().encode(request.auth)) ?? Data()
+                existing.collectionId = request.collectionId
+                // Preserve persisted ordering when updating from editor drafts.
+                existing.updatedAt = Date()
+            } else {
+                modelContext.insert(RequestModel(from: request))
+            }
+            try modelContext.save()
+        } catch let error as PersistenceError {
+            throw error
+        } catch {
+            throw PersistenceError.saveFailed(error)
         }
-        try modelContext.save()
     }
 
     func delete(_ request: Request) async throws {
-        let id = request.id
-        let predicate = #Predicate<RequestModel> { $0.id == id }
-        let descriptor = FetchDescriptor<RequestModel>(predicate: predicate)
-        if let model = try modelContext.fetch(descriptor).first {
-            modelContext.delete(model)
-            try modelContext.save()
+        do {
+            let id = request.id
+            let predicate = #Predicate<RequestModel> { $0.id == id }
+            let descriptor = FetchDescriptor<RequestModel>(predicate: predicate)
+            if let model = try modelContext.fetch(descriptor).first {
+                let responseDescriptor = FetchDescriptor<ResponseModel>()
+                let responses = try modelContext.fetch(responseDescriptor)
+                for response in responses where response.requestId == id {
+                    modelContext.delete(response)
+                }
+
+                let tabDescriptor = FetchDescriptor<TabModel>()
+                let tabs = try modelContext.fetch(tabDescriptor)
+                for tab in tabs where tab.linkedRequestId == id {
+                    tab.linkedRequestId = nil
+                }
+
+                modelContext.delete(model)
+                try modelContext.save()
+            }
+        } catch let error as PersistenceError {
+            throw error
+        } catch {
+            throw PersistenceError.saveFailed(error)
         }
     }
 

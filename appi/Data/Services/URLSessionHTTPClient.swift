@@ -2,7 +2,6 @@ import Foundation
 
 final class URLSessionHTTPClient: HTTPClient, @unchecked Sendable {
     private let session: URLSession
-    private var currentTask: URLSessionTask?
 
     init(session: URLSession = .shared) {
         self.session = session
@@ -11,23 +10,41 @@ final class URLSessionHTTPClient: HTTPClient, @unchecked Sendable {
     nonisolated func execute(_ request: ResolvedRequest) async throws -> Response {
         let urlRequest = buildURLRequest(from: request)
         let start = CFAbsoluteTimeGetCurrent()
-
-        let data: Data
-        let urlResponse: URLResponse
         do {
-            (data, urlResponse) = try await session.data(for: urlRequest)
+            let (data, urlResponse) = try await session.data(for: urlRequest)
+            return try makeResponse(
+                data: data,
+                urlResponse: urlResponse,
+                startedAt: start
+            )
+        } catch is CancellationError {
+            throw RequestError.cancelled
+        } catch let error as RequestError {
+            throw error
         } catch let error as URLError {
-            if error.code == .cancelled {
-                throw RequestError.cancelled
-            } else if error.code == .timedOut {
-                throw RequestError.timeout
-            } else if error.code == .serverCertificateUntrusted || error.code == .serverCertificateHasBadDate {
-                throw RequestError.sslError(error.localizedDescription)
-            }
-            throw RequestError.networkError(error)
+            throw map(error)
+        } catch {
+            throw RequestError.networkError(URLError(.unknown))
         }
+    }
 
-        let duration = CFAbsoluteTimeGetCurrent() - start
+    // MARK: - Private
+
+    private nonisolated func map(_ error: URLError) -> RequestError {
+        switch error.code {
+        case .cancelled:
+            return .cancelled
+        case .timedOut:
+            return .timeout
+        case .serverCertificateUntrusted, .serverCertificateHasBadDate:
+            return .sslError(error.localizedDescription)
+        default:
+            return .networkError(error)
+        }
+    }
+
+    private nonisolated func makeResponse(data: Data, urlResponse: URLResponse, startedAt: CFAbsoluteTime) throws -> Response {
+        let duration = CFAbsoluteTimeGetCurrent() - startedAt
 
         guard let httpResponse = urlResponse as? HTTPURLResponse else {
             throw RequestError.networkError(URLError(.badServerResponse))
@@ -52,12 +69,6 @@ final class URLSessionHTTPClient: HTTPClient, @unchecked Sendable {
             createdAt: Date()
         )
     }
-
-    nonisolated func cancel() {
-        currentTask?.cancel()
-    }
-
-    // MARK: - Private
 
     private nonisolated func buildURLRequest(from request: ResolvedRequest) -> URLRequest {
         var urlRequest = URLRequest(url: request.url)

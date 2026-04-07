@@ -8,6 +8,38 @@
 import SwiftUI
 import SwiftData
 
+@MainActor
+func bootstrapIfNeeded(
+    workspaceRepository: any WorkspaceRepository,
+    collectionRepository: any CollectionRepository,
+    tabRepository: any TabRepository
+) async {
+    do {
+        let workspaces = try await workspaceRepository.fetchAll()
+        guard workspaces.isEmpty else { return }
+
+        let workspace = Workspace(id: UUID(), name: "My Workspace", createdAt: Date())
+        try await workspaceRepository.save(workspace)
+
+        let collection = Collection(
+            id: UUID(), name: "My Collection", parentId: nil,
+            sortIndex: 0, workspaceId: workspace.id, auth: .none,
+            createdAt: Date(), updatedAt: Date()
+        )
+        try await collectionRepository.save(collection)
+
+        let tab = Tab(
+            id: UUID(), linkedRequestId: nil,
+            draft: RequestDraft.empty(in: collection.id),
+            originalDraft: nil,
+            sortIndex: 0, isActive: true, createdAt: Date()
+        )
+        try await tabRepository.save(tab)
+    } catch {
+        // First launch is best-effort — app still opens
+    }
+}
+
 @main
 struct AppiApp: App {
     let modelContainer: ModelContainer
@@ -24,6 +56,13 @@ struct AppiApp: App {
         WindowGroup {
             ContentView()
                 .environment(container)
+                .task {
+                    await bootstrapIfNeeded(
+                        workspaceRepository: container.workspaceRepository,
+                        collectionRepository: container.collectionRepository,
+                        tabRepository: container.tabRepository
+                    )
+                }
         }
     }
 }

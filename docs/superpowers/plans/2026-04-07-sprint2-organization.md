@@ -42,6 +42,176 @@
 
 ---
 
+## Task 0: Extend Tab Model — Add `originalDraft` for Dirty Tracking
+
+**Files:**
+- Modify: `appi/Domain/Models/Tab.swift`
+- Modify: `appi/Data/Models/TabModel.swift`
+- Modify: `appi/Data/Repositories/SwiftDataTabRepository.swift`
+
+The dirty state source of truth is `tab.originalDraft`: a snapshot of the draft at the moment a saved request was opened. `isDirty = originalDraft != nil && draft != originalDraft`. New tabs have `originalDraft = nil` and are never dirty.
+
+- [ ] **Step 1: Write failing test for Tab.isDirty**
+
+Create file `appiTests/Domain/Models/TabTests.swift`:
+
+```swift
+// appiTests/Domain/Models/TabTests.swift
+import Testing
+import Foundation
+@testable import appi
+
+struct TabTests {
+    @Test("isDirty is false for new tab without originalDraft")
+    func newTabNotDirty() {
+        let tab = Tab(
+            id: UUID(), linkedRequestId: nil,
+            draft: RequestDraft.empty(in: UUID()),
+            originalDraft: nil,
+            sortIndex: 0, isActive: true, createdAt: Date()
+        )
+        #expect(tab.isDirty == false)
+    }
+
+    @Test("isDirty is false when draft matches originalDraft")
+    func unchangedTabNotDirty() {
+        let draft = RequestDraft.empty(in: UUID())
+        let tab = Tab(
+            id: UUID(), linkedRequestId: UUID(),
+            draft: draft,
+            originalDraft: draft,
+            sortIndex: 0, isActive: true, createdAt: Date()
+        )
+        #expect(tab.isDirty == false)
+    }
+
+    @Test("isDirty is true when draft differs from originalDraft")
+    func modifiedTabIsDirty() {
+        let original = RequestDraft.empty(in: UUID())
+        var modified = original
+        modified.url = "https://changed.example.com"
+        let tab = Tab(
+            id: UUID(), linkedRequestId: UUID(),
+            draft: modified,
+            originalDraft: original,
+            sortIndex: 0, isActive: true, createdAt: Date()
+        )
+        #expect(tab.isDirty == true)
+    }
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `xcodebuild -scheme appi -destination 'platform=macOS' test 2>&1 | grep -E "(error|FAIL|SUCCEED)"`
+Expected: FAIL — `originalDraft` parameter not found
+
+- [ ] **Step 3: Add originalDraft to Tab domain model**
+
+```swift
+// appi/Domain/Models/Tab.swift
+import Foundation
+
+struct Tab: Equatable, Identifiable {
+    let id: UUID
+    var linkedRequestId: UUID?
+    var draft: RequestDraft
+    var originalDraft: RequestDraft?
+    var sortIndex: Int
+    var isActive: Bool
+    let createdAt: Date
+
+    var isDirty: Bool {
+        guard let originalDraft else { return false }
+        return draft != originalDraft
+    }
+}
+```
+
+- [ ] **Step 4: Update TabModel to persist originalDraft**
+
+```swift
+// appi/Data/Models/TabModel.swift
+import Foundation
+import SwiftData
+
+@Model
+final class TabModel {
+    @Attribute(.unique) var id: UUID
+    var linkedRequestId: UUID?
+    var draftData: Data
+    var originalDraftData: Data?
+    var sortIndex: Int
+    var isActive: Bool
+    var createdAt: Date
+
+    init(id: UUID, linkedRequestId: UUID?, draftData: Data, originalDraftData: Data?, sortIndex: Int, isActive: Bool, createdAt: Date) {
+        self.id = id
+        self.linkedRequestId = linkedRequestId
+        self.draftData = draftData
+        self.originalDraftData = originalDraftData
+        self.sortIndex = sortIndex
+        self.isActive = isActive
+        self.createdAt = createdAt
+    }
+
+    convenience init(from tab: Tab) {
+        self.init(
+            id: tab.id,
+            linkedRequestId: tab.linkedRequestId,
+            draftData: (try? JSONEncoder().encode(tab.draft)) ?? Data(),
+            originalDraftData: tab.originalDraft.flatMap { try? JSONEncoder().encode($0) },
+            sortIndex: tab.sortIndex,
+            isActive: tab.isActive,
+            createdAt: tab.createdAt
+        )
+    }
+
+    func toDomain() -> Tab {
+        let draft = (try? JSONDecoder().decode(RequestDraft.self, from: draftData)) ?? RequestDraft.empty(in: UUID())
+        let originalDraft = originalDraftData.flatMap { try? JSONDecoder().decode(RequestDraft.self, from: $0) }
+        return Tab(
+            id: id,
+            linkedRequestId: linkedRequestId,
+            draft: draft,
+            originalDraft: originalDraft,
+            sortIndex: sortIndex,
+            isActive: isActive,
+            createdAt: createdAt
+        )
+    }
+}
+```
+
+- [ ] **Step 5: Update SwiftDataTabRepository.save to persist originalDraftData**
+
+In `SwiftDataTabRepository.save`, add to the existing-record update branch:
+
+```swift
+existing.originalDraftData = tab.originalDraft.flatMap { try? JSONEncoder().encode($0) }
+```
+
+- [ ] **Step 6: Fix all existing Tab(...) call sites to include originalDraft: nil**
+
+Search for `Tab(` in the codebase. Every existing call creates a new/empty tab, so add `originalDraft: nil` to each. This includes:
+- `appi/App/ContentView.swift`
+- `appiTests/Presentation/ViewModels/RequestEditorViewModelTests.swift`
+- Any other test helpers
+
+- [ ] **Step 7: Run tests to verify they pass**
+
+Run: `xcodebuild -scheme appi -destination 'platform=macOS' test 2>&1 | grep -E "(Test|FAIL|SUCCEED)"`
+Expected: All tests PASS
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add appi/Domain/Models/Tab.swift appi/Data/Models/TabModel.swift appi/Data/Repositories/SwiftDataTabRepository.swift appiTests/Domain/Models/TabTests.swift appi/App/ContentView.swift appiTests/Presentation/ViewModels/RequestEditorViewModelTests.swift
+git commit -m "feat: add originalDraft to Tab for dirty state tracking"
+```
+
+---
+
 ## Task 1: Add Missing Mocks (WorkspaceRepository + TabRepository)
 
 **Files:**
@@ -922,6 +1092,9 @@ import Foundation
 
 @MainActor
 struct TabBarViewModelTests {
+    // NOTE: All Tab() constructors in these tests need `originalDraft:` parameter (added in Task 0).
+    // Use `originalDraft: nil` for new/empty tabs, `originalDraft: draft` for tabs opened from saved requests.
+
     func makeViewModel(
         tabRepository: MockTabRepository? = nil,
         requestRepository: MockRequestRepository? = nil
@@ -1113,6 +1286,8 @@ import Foundation
 final class TabBarViewModel {
     var tabs: [Tab] = []
     var activeTabId: UUID?
+    /// Monotonic counter incremented after reloadTabs() so ContentView can observe payload changes.
+    var tabsVersion: Int = 0
 
     private let tabRepository: any TabRepository
     let requestRepository: any RequestRepository
@@ -1144,11 +1319,13 @@ final class TabBarViewModel {
             return
         }
 
-        // Create new tab
+        // Create new tab with originalDraft snapshot for dirty tracking
+        let draft = RequestDraft.from(request)
         let tab = Tab(
             id: UUID(),
             linkedRequestId: request.id,
-            draft: RequestDraft.from(request),
+            draft: draft,
+            originalDraft: draft,
             sortIndex: tabs.count,
             isActive: true,
             createdAt: Date()
@@ -1168,6 +1345,7 @@ final class TabBarViewModel {
             id: UUID(),
             linkedRequestId: nil,
             draft: RequestDraft.empty(in: collectionId),
+            originalDraft: nil,
             sortIndex: tabs.count,
             isActive: true,
             createdAt: Date()
@@ -1234,15 +1412,9 @@ final class TabBarViewModel {
         } catch {}
     }
 
-    /// Checks if a tab's draft differs from the persisted request.
-    /// Tabs without a linkedRequestId are never dirty.
+    /// Delegates to Tab.isDirty — compares draft against originalDraft snapshot.
     func isDirty(_ tab: Tab) -> Bool {
-        // Tabs without linkedRequestId are never dirty (new drafts)
-        guard tab.linkedRequestId != nil else { return false }
-        // The saved request's snapshot is captured in the tab at open time;
-        // compare current draft against original. For now, a simple name+url+method+body+headers check.
-        // Full comparison implemented via RequestDraft.from(request) at open time.
-        return true // Will be refined — placeholder signals "always dirty if linked"
+        tab.isDirty
     }
 
     private func performClose(at index: Int) async {
@@ -1273,6 +1445,7 @@ final class TabBarViewModel {
             if let activeTabId, !tabs.contains(where: { $0.id == activeTabId }) {
                 self.activeTabId = tabs.first?.id
             }
+            tabsVersion += 1
         } catch {}
     }
 
@@ -1498,13 +1671,12 @@ final class RequestEditorViewModel {
             tab.linkedRequestId = request.id
         }
         tab.draft = draft
+        tab.originalDraft = draft  // Reset baseline — tab is no longer dirty
         try await tabRepository.save(tab)
     }
 
     var isDirty: Bool {
-        guard let _ = tab.linkedRequestId else { return false }
-        // Compare current draft against what was last saved to the tab
-        return true // Proper comparison implemented when save flow is complete
+        tab.isDirty
     }
 
     private func syncDraftToTab() {
@@ -1812,6 +1984,11 @@ struct ContentView: View {
             updateEditor()
         }
         .onChange(of: tabBarViewModel?.activeTabId) { _, _ in
+            updateEditor()
+        }
+        .onChange(of: tabBarViewModel?.tabsVersion) { _, _ in
+            // Fires after reloadTabs() — catches payload changes (e.g. orphan cleanup)
+            // even when activeTabId stays the same
             updateEditor()
         }
     }

@@ -71,7 +71,7 @@ Referência de UX: **Postman** — seguimos seus padrões de interação como be
 - Sidebar com árvore hierárquica de collections e requests.
 - Criar, renomear, mover e deletar collections e requests.
 - Drag-and-drop para reordenar.
-- Busca por nome de request.
+- Busca por nome de request e de collection.
 
 ### RF-04 — Tabs múltiplas
 - Barra de tabs no topo do painel central.

@@ -45,6 +45,11 @@
 			path = appiUITests;
 			sourceTree = "<group>";
 		};
+		8EF9AFF62F84A9DC00B84885 /* docs */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = docs;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -75,6 +80,7 @@
 		8EF9AFC12F84A93500B84885 = {
 			isa = PBXGroup;
 			children = (
+				8EF9AFF62F84A9DC00B84885 /* docs */,
 				8EF9AFCC2F84A93500B84885 /* appi */,
 				8EF9AFDC2F84A93700B84885 /* appiTests */,
 				8EF9AFE62F84A93700B84885 /* appiUITests */,
@@ -109,6 +115,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				8EF9AFCC2F84A93500B84885 /* appi */,
+				8EF9AFF62F84A9DC00B84885 /* docs */,
 			);
 			name = appi;
 			packageProductDependencies = (
@@ -403,6 +410,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -435,6 +443,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

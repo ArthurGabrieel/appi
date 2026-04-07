@@ -1,0 +1,26 @@
+included:
+  - appi
+
+excluded:
+  - appiTests
+  - appiUITests
+
+opt_in_rules:
+  - empty_count
+  - closure_spacing
+  - contains_over_filter_count
+  - discouraged_optional_boolean
+  - empty_string
+  - force_unwrapping
+  - implicitly_unwrapped_optional
+  - modifier_order
+  - trailing_comma
+  - vertical_whitespace_closing_braces
+
+disabled_rules:
+  - todo
+  - line_length
+
+force_cast: error
+force_try: error
+force_unwrapping: error

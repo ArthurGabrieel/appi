@@ -422,6 +422,7 @@ func bootstrapIfNeeded(
         let tab = Tab(
             id: UUID(), linkedRequestId: nil,
             draft: RequestDraft.empty(in: collection.id),
+            originalDraft: nil,
             sortIndex: 0, isActive: true, createdAt: Date()
         )
         try await tabRepository.save(tab)
@@ -1112,11 +1113,13 @@ struct TabBarViewModelTests {
         let tab1 = Tab(
             id: UUID(), linkedRequestId: nil,
             draft: RequestDraft.empty(in: collectionId),
+            originalDraft: nil,
             sortIndex: 0, isActive: false, createdAt: Date()
         )
         let tab2 = Tab(
             id: UUID(), linkedRequestId: nil,
             draft: RequestDraft.empty(in: collectionId),
+            originalDraft: nil,
             sortIndex: 1, isActive: true, createdAt: Date()
         )
         tabRepo.tabs = [tab1, tab2]
@@ -1138,7 +1141,8 @@ struct TabBarViewModelTests {
         draft.name = "Login"
         let existingTab = Tab(
             id: UUID(), linkedRequestId: requestId,
-            draft: draft, sortIndex: 0, isActive: true, createdAt: Date()
+            draft: draft, originalDraft: draft,
+            sortIndex: 0, isActive: true, createdAt: Date()
         )
         tabRepo.tabs = [existingTab]
 
@@ -1201,8 +1205,8 @@ struct TabBarViewModelTests {
         let tabRepo = MockTabRepository()
         let collectionId = UUID()
         // Tabs without linkedRequestId are never dirty
-        let tab1 = Tab(id: UUID(), linkedRequestId: nil, draft: RequestDraft.empty(in: collectionId), sortIndex: 0, isActive: true, createdAt: Date())
-        let tab2 = Tab(id: UUID(), linkedRequestId: nil, draft: RequestDraft.empty(in: collectionId), sortIndex: 1, isActive: false, createdAt: Date())
+        let tab1 = Tab(id: UUID(), linkedRequestId: nil, draft: RequestDraft.empty(in: collectionId), originalDraft: nil, sortIndex: 0, isActive: true, createdAt: Date())
+        let tab2 = Tab(id: UUID(), linkedRequestId: nil, draft: RequestDraft.empty(in: collectionId), originalDraft: nil, sortIndex: 1, isActive: false, createdAt: Date())
         tabRepo.tabs = [tab1, tab2]
 
         let vm = makeViewModel(tabRepository: tabRepo)
@@ -1220,7 +1224,14 @@ struct TabBarViewModelTests {
         let tabRepo = MockTabRepository()
         let requestId = UUID()
         let collectionId = UUID()
-        let tab = Tab(id: UUID(), linkedRequestId: requestId, draft: RequestDraft.empty(in: collectionId), sortIndex: 0, isActive: true, createdAt: Date())
+        let originalDraft = RequestDraft.empty(in: collectionId)
+        var modifiedDraft = originalDraft
+        modifiedDraft.url = "https://modified.example.com"
+        let tab = Tab(
+            id: UUID(), linkedRequestId: requestId,
+            draft: modifiedDraft, originalDraft: originalDraft,
+            sortIndex: 0, isActive: true, createdAt: Date()
+        )
         tabRepo.tabs = [tab]
 
         let vm = makeViewModel(tabRepository: tabRepo)
@@ -1241,7 +1252,7 @@ struct TabBarViewModelTests {
     func forceCloseTab() async throws {
         let tabRepo = MockTabRepository()
         let requestId = UUID()
-        let tab = Tab(id: UUID(), linkedRequestId: requestId, draft: RequestDraft.empty(in: UUID()), sortIndex: 0, isActive: true, createdAt: Date())
+        let tab = Tab(id: UUID(), linkedRequestId: requestId, draft: RequestDraft.empty(in: UUID()), originalDraft: nil, sortIndex: 0, isActive: true, createdAt: Date())
         tabRepo.tabs = [tab]
 
         let vm = makeViewModel(tabRepository: tabRepo)
@@ -1256,7 +1267,7 @@ struct TabBarViewModelTests {
     @Test("closeTab last tab sets activeTabId to nil")
     func closeLastTab() async throws {
         let tabRepo = MockTabRepository()
-        let tab = Tab(id: UUID(), linkedRequestId: nil, draft: RequestDraft.empty(in: UUID()), sortIndex: 0, isActive: true, createdAt: Date())
+        let tab = Tab(id: UUID(), linkedRequestId: nil, draft: RequestDraft.empty(in: UUID()), originalDraft: nil, sortIndex: 0, isActive: true, createdAt: Date())
         tabRepo.tabs = [tab]
 
         let vm = makeViewModel(tabRepository: tabRepo)
@@ -1534,6 +1545,7 @@ func makeViewModel(
     let actualTab = tab ?? Tab(
         id: UUID(), linkedRequestId: nil,
         draft: RequestDraft.empty(in: collectionId),
+        originalDraft: nil,
         sortIndex: 0, isActive: true, createdAt: Date()
     )
     return RequestEditorViewModel(

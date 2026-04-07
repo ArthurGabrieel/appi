@@ -11,6 +11,7 @@ final class DependencyContainer {
     let tabRepository: any TabRepository
     let httpClient: any HTTPClient
     let envResolver: any EnvResolver
+    let authResolver: any AuthResolver
     let keychainService: any KeychainService
 
     init(modelContainer: ModelContainer) {
@@ -22,9 +23,22 @@ final class DependencyContainer {
         self.tabRepository = SwiftDataTabRepository(modelContainer: modelContainer)
         self.httpClient = URLSessionHTTPClient()
         self.envResolver = DefaultEnvResolver()
+        self.authResolver = DefaultAuthResolver()
         self.keychainService = AppleKeychainService()
     }
 
     // MARK: - ViewModel Factories
-    // Factory methods for ViewModels will be added as they are implemented.
+
+    func makeRequestEditorViewModel(draft: RequestDraft, tab: Tab) -> RequestEditorViewModel {
+        RequestEditorViewModel(
+            draft: draft,
+            tab: tab,
+            requestRepository: requestRepository,
+            responseRepository: responseRepository,
+            collectionRepository: collectionRepository,
+            httpClient: httpClient,
+            envResolver: envResolver,
+            authResolver: authResolver
+        )
+    }
 }

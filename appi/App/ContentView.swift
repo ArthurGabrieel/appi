@@ -1,18 +1,28 @@
-//
-//  ContentView.swift
-//  appi
-//
-//  Created by Arthur Gabriel Lima Gomes on 06/04/26.
-//
-
 import SwiftUI
 
 struct ContentView: View {
-    var body: some View {
-        Text("Appi")
-    }
-}
+    @SwiftUI.Environment(DependencyContainer.self) private var container
 
-#Preview {
-    ContentView()
+    @State private var viewModel: RequestEditorViewModel?
+
+    var body: some View {
+        Group {
+            if let viewModel {
+                RequestEditorView(viewModel: viewModel, activeEnvironment: nil)
+            } else {
+                EmptyStateView { createNewRequest() }
+            }
+        }
+        .onAppear { createNewRequest() }
+    }
+
+    private func createNewRequest() {
+        let collectionId = UUID()
+        let tab = Tab(
+            id: UUID(), linkedRequestId: nil,
+            draft: RequestDraft.empty(in: collectionId),
+            sortIndex: 0, isActive: true, createdAt: Date()
+        )
+        viewModel = container.makeRequestEditorViewModel(draft: tab.draft, tab: tab)
+    }
 }

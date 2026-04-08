@@ -300,4 +300,23 @@ struct CollectionTreeViewModelTests {
         #expect(roots.count == 1)
         #expect(roots.first?.name == "Auth API")
     }
+
+    @Test("deleteRequest calls cleanupOrphanedLinks on tabRepository")
+    func deleteRequestCleansUpOrphans() async throws {
+        let colRepo = MockCollectionRepository()
+        let collection = Collection(id: UUID(), name: "API", parentId: nil, sortIndex: 0, workspaceId: workspaceId, auth: .none, createdAt: Date(), updatedAt: Date())
+        colRepo.collections = [collection]
+
+        let reqRepo = MockRequestRepository()
+        let request = Request(id: UUID(), name: "Login", method: .post, url: "/login", headers: [], body: .none, auth: .inheritFromParent, collectionId: collection.id, sortIndex: 0, createdAt: Date(), updatedAt: Date())
+        reqRepo.requests = [request]
+
+        let tabRepo = MockTabRepository()
+        let vm = makeViewModel(collectionRepository: colRepo, requestRepository: reqRepo, tabRepository: tabRepo)
+        await vm.loadTree()
+
+        await vm.deleteRequest(request)
+
+        #expect(tabRepo.cleanupOrphanedLinksCalled)
+    }
 }

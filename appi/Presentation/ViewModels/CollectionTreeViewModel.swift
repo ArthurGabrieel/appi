@@ -34,6 +34,7 @@ final class CollectionTreeViewModel {
     var searchQuery: String = ""
 
     var onRequestSelected: ((Request) -> Void)?
+    var onTreeChanged: (() -> Void)?
 
     let workspaceId: UUID
     private let collectionRepository: any CollectionRepository
@@ -145,6 +146,7 @@ final class CollectionTreeViewModel {
             try await collectionRepository.delete(collection)
             try await tabRepository.cleanupOrphanedLinks()
             await loadTree()
+            onTreeChanged?()
         } catch {}
     }
 
@@ -153,6 +155,7 @@ final class CollectionTreeViewModel {
             try await requestRepository.delete(request)
             try await tabRepository.cleanupOrphanedLinks()
             await loadTree()
+            onTreeChanged?()
         } catch {}
     }
 

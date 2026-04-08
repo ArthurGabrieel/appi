@@ -50,6 +50,9 @@ struct ContentView: View {
             treeVM.onRequestSelected = { request in
                 Task { await tabVM.openRequest(request) }
             }
+            treeVM.onTreeChanged = {
+                Task { await tabVM.reloadTabs() }
+            }
 
             collectionTreeViewModel = treeVM
             tabBarViewModel = tabVM

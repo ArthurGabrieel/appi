@@ -44,9 +44,9 @@ actor SwiftDataRequestRepository: RequestRepository {
 
     func move(_ requestId: UUID, toCollection collectionId: UUID, sortIndex: Int) async throws {
         do {
-            let predicate = #Predicate<RequestModel> { $0.id == requestId }
-            let descriptor = FetchDescriptor<RequestModel>(predicate: predicate)
-            if let existing = try modelContext.fetch(descriptor).first {
+            let id = requestId
+            let predicate = #Predicate<RequestModel> { $0.id == id }
+            if let existing = try modelContext.fetch(FetchDescriptor<RequestModel>(predicate: predicate)).first {
                 existing.collectionId = collectionId
                 existing.sortIndex = sortIndex
                 existing.updatedAt = Date()

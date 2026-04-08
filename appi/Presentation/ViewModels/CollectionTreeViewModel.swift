@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 enum SidebarItem: Identifiable, Equatable {
     case collection(Collection)
@@ -167,8 +168,13 @@ final class CollectionTreeViewModel {
     }
 
     func moveRequest(_ requestId: UUID, toCollection collectionId: UUID, atIndex: Int) async {
+        guard let request = requests.first(where: { $0.id == requestId }) else { return }
+        var movedRequest = request
+        movedRequest.collectionId = collectionId
+        var destItems = children(of: collectionId).filter { $0.id != requestId }
+        destItems.insert(.request(movedRequest), at: min(atIndex, destItems.count))
         do {
-            try await requestRepository.move(requestId, toCollection: collectionId, sortIndex: atIndex)
+            try await saveReindexed(destItems)
             await loadTree()
         } catch {}
     }
@@ -177,15 +183,46 @@ final class CollectionTreeViewModel {
         guard var collection = collections.first(where: { $0.id == collectionId }) else { return }
         guard canDropCollection(collectionId, intoParent: parentId) else { return }
         collection.parentId = parentId
-        collection.sortIndex = atIndex
         if parentId == nil, collection.auth == .inheritFromParent {
             collection.auth = .none
         }
         collection.updatedAt = Date()
+        var destItems = children(of: parentId).filter { $0.id != collectionId }
+        destItems.insert(.collection(collection), at: min(atIndex, destItems.count))
         do {
-            try await collectionRepository.save(collection)
+            try await saveReindexed(destItems)
             await loadTree()
         } catch {}
+    }
+
+    /// Re-orders items within a parent level, called by List's .onMove.
+    func reorderChildren(of parentId: UUID?, from: IndexSet, to: Int) async {
+        guard searchQuery.isEmpty else { return }
+        var items = children(of: parentId)
+        items.move(fromOffsets: from, toOffset: to)
+        do {
+            try await saveReindexed(items)
+            await loadTree()
+        } catch {}
+    }
+
+    /// Assigns sortIndex 0…N to each item and persists only those whose index or
+    /// parent changed. Items already carry updated parentId/collectionId from the caller.
+    private func saveReindexed(_ items: [SidebarItem]) async throws {
+        for (index, item) in items.enumerated() {
+            switch item {
+            case .collection(var c):
+                let stored = collections.first(where: { $0.id == c.id })
+                guard stored?.sortIndex != index || stored?.parentId != c.parentId else { continue }
+                c.sortIndex = index
+                c.updatedAt = Date()
+                try await collectionRepository.save(c)
+            case .request(let r):
+                let stored = requests.first(where: { $0.id == r.id })
+                guard stored?.sortIndex != index || stored?.collectionId != r.collectionId else { continue }
+                try await requestRepository.move(r.id, toCollection: r.collectionId, sortIndex: index)
+            }
+        }
     }
 
     func canDropCollection(_ collectionId: UUID, intoParent parentId: UUID?) -> Bool {

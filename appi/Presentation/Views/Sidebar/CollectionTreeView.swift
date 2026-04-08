@@ -13,11 +13,25 @@ struct CollectionTreeView: View {
             ForEach(viewModel.filteredChildren(of: nil)) { item in
                 sidebarItemView(item)
             }
+            .onMove(perform: viewModel.searchQuery.isEmpty ? { from, to in
+                Task { await viewModel.reorderChildren(of: nil, from: from, to: to) }
+            } : nil)
         }
         .onChange(of: viewModel.selectedItemId) { _, newValue in
             if let id = newValue {
                 viewModel.selectItem(id)
             }
+        }
+        // Root-level drop zone: accepts collection drags to re-parent to root.
+        .dropDestination(for: String.self) { items, _ in
+            guard let idString = items.first,
+                  let itemId = UUID(uuidString: idString),
+                  viewModel.collections.contains(where: { $0.id == itemId }),
+                  viewModel.canDropCollection(itemId, intoParent: nil)
+            else { return false }
+            let atIndex = viewModel.children(of: nil).count
+            Task { await viewModel.moveCollection(itemId, toParent: nil, atIndex: atIndex) }
+            return true
         }
         .alert(String(localized: "sidebar.delete.title"), isPresented: Binding(
             get: { itemPendingDelete != nil },
@@ -59,7 +73,7 @@ struct CollectionTreeView: View {
     }
 
     /// Collections that should be force-expanded when a search is active,
-    /// so that matching items and their ancestor chain are visible.
+    /// so that matching items and their full ancestor chain are visible.
     private var searchExpandedCollections: Set<UUID> {
         guard !viewModel.searchQuery.isEmpty else { return [] }
         var expanded = Set<UUID>()
@@ -74,6 +88,7 @@ struct CollectionTreeView: View {
         }
 
         for collection in viewModel.collections where collection.name.lowercased().contains(query) {
+            expanded.insert(collection.id)  // expand the matching collection to reveal its children
             var currentId: UUID? = collection.parentId
             while let id = currentId {
                 expanded.insert(id)
@@ -122,6 +137,9 @@ struct CollectionTreeView: View {
                 ForEach(viewModel.filteredChildren(of: collection.id)) { child in
                     sidebarItemView(child)
                 }
+                .onMove(perform: viewModel.searchQuery.isEmpty ? { from, to in
+                    Task { await viewModel.reorderChildren(of: collection.id, from: from, to: to) }
+                } : nil)
             } label: {
                 Group {
                     if renamingItemId == collection.id {
@@ -140,13 +158,15 @@ struct CollectionTreeView: View {
                 .draggable(collection.id.uuidString)
                 .contextMenu { collectionContextMenu(collection) }
             }
+            // Drop ON a collection: move item into it, appending at the end.
             .dropDestination(for: String.self) { items, _ in
                 guard let idString = items.first, let itemId = UUID(uuidString: idString) else { return false }
+                let atIndex = viewModel.children(of: collection.id).count
                 if viewModel.requests.contains(where: { $0.id == itemId }) {
-                    Task { await viewModel.moveRequest(itemId, toCollection: collection.id, atIndex: 0) }
+                    Task { await viewModel.moveRequest(itemId, toCollection: collection.id, atIndex: atIndex) }
                     return true
                 } else if viewModel.canDropCollection(itemId, intoParent: collection.id) {
-                    Task { await viewModel.moveCollection(itemId, toParent: collection.id, atIndex: 0) }
+                    Task { await viewModel.moveCollection(itemId, toParent: collection.id, atIndex: atIndex) }
                     return true
                 }
                 return false

@@ -242,4 +242,62 @@ struct CollectionTreeViewModelTests {
         let canDrop = vm.canDropCollection(standalone.id, intoParent: l4.id)
         #expect(canDrop == false)
     }
+
+    @Test("filteredChildren returns all items when searchQuery is empty")
+    func filteredChildrenNoQuery() async throws {
+        let colRepo = MockCollectionRepository()
+        let collection = Collection(id: UUID(), name: "API", parentId: nil, sortIndex: 0, workspaceId: workspaceId, auth: .none, createdAt: Date(), updatedAt: Date())
+        colRepo.collections = [collection]
+
+        let reqRepo = MockRequestRepository()
+        let request = Request(id: UUID(), name: "Login", method: .post, url: "/login", headers: [], body: .none, auth: .inheritFromParent, collectionId: collection.id, sortIndex: 0, createdAt: Date(), updatedAt: Date())
+        reqRepo.requests = [request]
+
+        let vm = makeViewModel(collectionRepository: colRepo, requestRepository: reqRepo)
+        await vm.loadTree()
+        vm.searchQuery = ""
+
+        let roots = vm.filteredChildren(of: nil)
+        #expect(roots.count == 1) // collection
+    }
+
+    @Test("filteredChildren matches request name case-insensitively")
+    func filteredChildrenMatchesRequest() async throws {
+        let colRepo = MockCollectionRepository()
+        let collection = Collection(id: UUID(), name: "API", parentId: nil, sortIndex: 0, workspaceId: workspaceId, auth: .none, createdAt: Date(), updatedAt: Date())
+        colRepo.collections = [collection]
+
+        let reqRepo = MockRequestRepository()
+        let match = Request(id: UUID(), name: "Login", method: .post, url: "/login", headers: [], body: .none, auth: .inheritFromParent, collectionId: collection.id, sortIndex: 0, createdAt: Date(), updatedAt: Date())
+        let noMatch = Request(id: UUID(), name: "Logout", method: .post, url: "/logout", headers: [], body: .none, auth: .inheritFromParent, collectionId: collection.id, sortIndex: 1, createdAt: Date(), updatedAt: Date())
+        reqRepo.requests = [match, noMatch]
+
+        let vm = makeViewModel(collectionRepository: colRepo, requestRepository: reqRepo)
+        await vm.loadTree()
+        vm.searchQuery = "login"
+
+        // Collection should be visible because it contains a matching request
+        let roots = vm.filteredChildren(of: nil)
+        #expect(roots.count == 1)
+
+        let collectionChildren = vm.filteredChildren(of: collection.id)
+        #expect(collectionChildren.count == 1)
+        #expect(collectionChildren.first?.name == "Login")
+    }
+
+    @Test("filteredChildren matches collection name")
+    func filteredChildrenMatchesCollection() async throws {
+        let colRepo = MockCollectionRepository()
+        let matchCol = Collection(id: UUID(), name: "Auth API", parentId: nil, sortIndex: 0, workspaceId: workspaceId, auth: .none, createdAt: Date(), updatedAt: Date())
+        let noMatchCol = Collection(id: UUID(), name: "Users", parentId: nil, sortIndex: 1, workspaceId: workspaceId, auth: .none, createdAt: Date(), updatedAt: Date())
+        colRepo.collections = [matchCol, noMatchCol]
+
+        let vm = makeViewModel(collectionRepository: colRepo)
+        await vm.loadTree()
+        vm.searchQuery = "auth"
+
+        let roots = vm.filteredChildren(of: nil)
+        #expect(roots.count == 1)
+        #expect(roots.first?.name == "Auth API")
+    }
 }

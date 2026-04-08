@@ -203,6 +203,61 @@ final class CollectionTreeViewModel {
         return targetDepth + subtreeDepth + 1 <= 5
     }
 
+    /// Returns filtered sidebar items for a given parent.
+    /// When searchQuery is non-empty:
+    /// - A collection whose name matches shows with ALL its children (unfiltered).
+    /// - A collection that doesn't match but has matching descendants is kept, and
+    ///   filtering continues recursively into its children.
+    /// - Requests are filtered by name.
+    func filteredChildren(of parentId: UUID?) -> [SidebarItem] {
+        guard !searchQuery.isEmpty else {
+            return children(of: parentId)
+        }
+
+        let query = searchQuery.lowercased()
+
+        // If parentId points to a collection whose name directly matched,
+        // show all children unfiltered (collection match → show with all children).
+        if let parentId, collectionNameMatches(parentId, query: query) {
+            return children(of: parentId)
+        }
+
+        let childCollections = collections
+            .filter { $0.parentId == parentId }
+            .filter { collectionMatchesSearch($0, query: query) }
+            .map { SidebarItem.collection($0) }
+
+        let childRequests: [SidebarItem]
+        if let parentId {
+            childRequests = requests
+                .filter { $0.collectionId == parentId }
+                .filter { $0.name.lowercased().contains(query) }
+                .map { SidebarItem.request($0) }
+        } else {
+            childRequests = []
+        }
+
+        return (childCollections + childRequests).sorted { $0.sortIndex < $1.sortIndex }
+    }
+
+    /// Returns true if the collection's own name matches the query.
+    private func collectionNameMatches(_ collectionId: UUID, query: String) -> Bool {
+        collections.first(where: { $0.id == collectionId })?.name.lowercased().contains(query) ?? false
+    }
+
+    /// Returns true if collection name matches OR any descendant matches.
+    private func collectionMatchesSearch(_ collection: Collection, query: String) -> Bool {
+        if collection.name.lowercased().contains(query) { return true }
+
+        let hasMatchingRequest = requests
+            .filter { $0.collectionId == collection.id }
+            .contains { $0.name.lowercased().contains(query) }
+        if hasMatchingRequest { return true }
+
+        let childCollections = collections.filter { $0.parentId == collection.id }
+        return childCollections.contains { collectionMatchesSearch($0, query: query) }
+    }
+
     private func depth(of collectionId: UUID?) -> Int {
         var count = 0
         var currentId = collectionId

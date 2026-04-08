@@ -5,7 +5,7 @@ struct CollectionTreeView: View {
 
     var body: some View {
         List(selection: $viewModel.selectedItemId) {
-            ForEach(viewModel.children(of: nil)) { item in
+            ForEach(viewModel.filteredChildren(of: nil)) { item in
                 sidebarItemView(item)
             }
         }
@@ -43,7 +43,7 @@ struct CollectionTreeView: View {
                     }
                 }
             )) {
-                ForEach(viewModel.children(of: collection.id)) { child in
+                ForEach(viewModel.filteredChildren(of: collection.id)) { child in
                     sidebarItemView(child)
                 }
             } label: {

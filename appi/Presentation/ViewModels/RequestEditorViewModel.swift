@@ -6,6 +6,7 @@ final class RequestEditorViewModel {
         didSet { syncDraftToTab() }
     }
     var tab: Tab
+    var onDraftChanged: ((Tab) -> Void)?
     var response: Response?
     var error: (any LocalizedError)?
     var isLoading = false
@@ -170,6 +171,7 @@ final class RequestEditorViewModel {
         guard tab.draft != draft else { return }
         tab.draft = draft
         let snapshot = tab
+        onDraftChanged?(snapshot)
         Task {
             try? await tabRepository.save(snapshot)
         }

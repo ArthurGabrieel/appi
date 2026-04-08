@@ -18,7 +18,7 @@ struct ContentView: View {
                 if let tabBarViewModel {
                     TabBarView(
                         viewModel: tabBarViewModel,
-                        defaultCollectionId: collectionTreeViewModel?.collections.first?.id
+                        defaultCollectionId: collectionTreeViewModel?.collections.first(where: { $0.parentId == nil })?.id
                     )
                     Divider()
                 }
@@ -39,6 +39,12 @@ struct ContentView: View {
         .task {
             guard !isLoaded else { return }
             isLoaded = true
+
+            await bootstrapIfNeeded(
+                workspaceRepository: container.workspaceRepository,
+                collectionRepository: container.collectionRepository,
+                tabRepository: container.tabRepository
+            )
 
             // Resolve workspaceId once
             guard let workspace = try? await container.workspaceRepository.fetchAll().first else { return }
@@ -77,6 +83,12 @@ struct ContentView: View {
             editorViewModel = nil
             return
         }
-        editorViewModel = container.makeRequestEditorViewModel(draft: activeTab.draft, tab: activeTab)
+        let vm = container.makeRequestEditorViewModel(draft: activeTab.draft, tab: activeTab)
+        vm.onDraftChanged = { [tabBarViewModel] updatedTab in
+            if let index = tabBarViewModel.tabs.firstIndex(where: { $0.id == updatedTab.id }) {
+                tabBarViewModel.tabs[index] = updatedTab
+            }
+        }
+        editorViewModel = vm
     }
 }

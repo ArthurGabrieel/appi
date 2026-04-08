@@ -56,13 +56,6 @@ struct AppiApp: App {
         WindowGroup {
             ContentView()
                 .environment(container)
-                .task {
-                    await bootstrapIfNeeded(
-                        workspaceRepository: container.workspaceRepository,
-                        collectionRepository: container.collectionRepository,
-                        tabRepository: container.tabRepository
-                    )
-                }
         }
     }
 }

@@ -97,7 +97,7 @@ final class CollectionTreeViewModel {
         let auth: AuthConfig = parentId == nil ? .none : .inheritFromParent
         let collection = Collection(
             id: UUID(), name: name, parentId: parentId,
-            sortIndex: collections.filter({ $0.parentId == parentId }).count,
+            sortIndex: children(of: parentId).count,
             workspaceId: workspaceId, auth: auth,
             createdAt: Date(), updatedAt: Date()
         )
@@ -108,7 +108,7 @@ final class CollectionTreeViewModel {
     }
 
     func createRequest(in collectionId: UUID) async {
-        let sortIndex = requests.filter { $0.collectionId == collectionId }.count
+        let sortIndex = children(of: collectionId).count
         let request = Request(
             id: UUID(), name: "New Request", method: .get,
             url: "", headers: [], body: .none,
@@ -167,12 +167,8 @@ final class CollectionTreeViewModel {
     }
 
     func moveRequest(_ requestId: UUID, toCollection collectionId: UUID, atIndex: Int) async {
-        guard var request = requests.first(where: { $0.id == requestId }) else { return }
-        request.collectionId = collectionId
-        request.sortIndex = atIndex
-        request.updatedAt = Date()
         do {
-            try await requestRepository.save(request)
+            try await requestRepository.move(requestId, toCollection: collectionId, sortIndex: atIndex)
             await loadTree()
         } catch {}
     }
@@ -182,7 +178,9 @@ final class CollectionTreeViewModel {
         guard canDropCollection(collectionId, intoParent: parentId) else { return }
         collection.parentId = parentId
         collection.sortIndex = atIndex
-        collection.auth = parentId == nil ? .none : collection.auth
+        if parentId == nil, collection.auth == .inheritFromParent {
+            collection.auth = .none
+        }
         collection.updatedAt = Date()
         do {
             try await collectionRepository.save(collection)

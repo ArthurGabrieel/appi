@@ -21,6 +21,13 @@ final class MockRequestRepository: RequestRepository, @unchecked Sendable {
         }
     }
 
+    func move(_ requestId: UUID, toCollection collectionId: UUID, sortIndex: Int) async throws {
+        if let index = requests.firstIndex(where: { $0.id == requestId }) {
+            requests[index].collectionId = collectionId
+            requests[index].sortIndex = sortIndex
+        }
+    }
+
     func delete(_ request: Request) async throws {
         deleteCalled = true
         requests.removeAll { $0.id == request.id }

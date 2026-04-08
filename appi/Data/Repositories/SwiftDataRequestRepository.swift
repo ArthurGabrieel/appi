@@ -42,6 +42,23 @@ actor SwiftDataRequestRepository: RequestRepository {
         }
     }
 
+    func move(_ requestId: UUID, toCollection collectionId: UUID, sortIndex: Int) async throws {
+        do {
+            let predicate = #Predicate<RequestModel> { $0.id == requestId }
+            let descriptor = FetchDescriptor<RequestModel>(predicate: predicate)
+            if let existing = try modelContext.fetch(descriptor).first {
+                existing.collectionId = collectionId
+                existing.sortIndex = sortIndex
+                existing.updatedAt = Date()
+                try modelContext.save()
+            }
+        } catch let error as PersistenceError {
+            throw error
+        } catch {
+            throw PersistenceError.saveFailed(error)
+        }
+    }
+
     func delete(_ request: Request) async throws {
         do {
             let id = request.id

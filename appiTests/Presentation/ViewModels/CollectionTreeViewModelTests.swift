@@ -168,4 +168,78 @@ struct CollectionTreeViewModelTests {
 
         #expect(vm.requests.isEmpty)
     }
+
+    @Test("moveRequest updates collectionId and sortIndex")
+    func moveRequest() async throws {
+        let colRepo = MockCollectionRepository()
+        let col1 = Collection(id: UUID(), name: "A", parentId: nil, sortIndex: 0, workspaceId: workspaceId, auth: .none, createdAt: Date(), updatedAt: Date())
+        let col2 = Collection(id: UUID(), name: "B", parentId: nil, sortIndex: 1, workspaceId: workspaceId, auth: .none, createdAt: Date(), updatedAt: Date())
+        colRepo.collections = [col1, col2]
+
+        let reqRepo = MockRequestRepository()
+        let request = Request(id: UUID(), name: "Login", method: .post, url: "/login", headers: [], body: .none, auth: .inheritFromParent, collectionId: col1.id, sortIndex: 0, createdAt: Date(), updatedAt: Date())
+        reqRepo.requests = [request]
+
+        let vm = makeViewModel(collectionRepository: colRepo, requestRepository: reqRepo)
+        await vm.loadTree()
+
+        await vm.moveRequest(request.id, toCollection: col2.id, atIndex: 0)
+
+        let moved = vm.requests.first { $0.id == request.id }
+        #expect(moved?.collectionId == col2.id)
+        #expect(moved?.sortIndex == 0)
+    }
+
+    @Test("moveCollection updates parentId")
+    func moveCollection() async throws {
+        let colRepo = MockCollectionRepository()
+        let parent = Collection(id: UUID(), name: "Parent", parentId: nil, sortIndex: 0, workspaceId: workspaceId, auth: .none, createdAt: Date(), updatedAt: Date())
+        let child = Collection(id: UUID(), name: "Child", parentId: nil, sortIndex: 1, workspaceId: workspaceId, auth: .none, createdAt: Date(), updatedAt: Date())
+        colRepo.collections = [parent, child]
+
+        let vm = makeViewModel(collectionRepository: colRepo)
+        await vm.loadTree()
+
+        await vm.moveCollection(child.id, toParent: parent.id, atIndex: 0)
+
+        let moved = vm.collections.first { $0.id == child.id }
+        #expect(moved?.parentId == parent.id)
+    }
+
+    @Test("canDropCollection rejects cycle — cannot drop into own descendant")
+    func canDropCollectionRejectsCycle() async throws {
+        let colRepo = MockCollectionRepository()
+        let parent = Collection(id: UUID(), name: "Parent", parentId: nil, sortIndex: 0, workspaceId: workspaceId, auth: .none, createdAt: Date(), updatedAt: Date())
+        let child = Collection(id: UUID(), name: "Child", parentId: parent.id, sortIndex: 0, workspaceId: workspaceId, auth: .inheritFromParent, createdAt: Date(), updatedAt: Date())
+        colRepo.collections = [parent, child]
+
+        let vm = makeViewModel(collectionRepository: colRepo)
+        await vm.loadTree()
+
+        let canDrop = vm.canDropCollection(parent.id, intoParent: child.id)
+        #expect(canDrop == false)
+    }
+
+    @Test("canDropCollection rejects exceeding 5-level depth limit")
+    func canDropCollectionRejectsDepth() async throws {
+        let colRepo = MockCollectionRepository()
+        // Build chain: root → l1 → l2 → l3 → l4 (4 levels deep)
+        let root = Collection(id: UUID(), name: "Root", parentId: nil, sortIndex: 0, workspaceId: workspaceId, auth: .none, createdAt: Date(), updatedAt: Date())
+        let l1 = Collection(id: UUID(), name: "L1", parentId: root.id, sortIndex: 0, workspaceId: workspaceId, auth: .inheritFromParent, createdAt: Date(), updatedAt: Date())
+        let l2 = Collection(id: UUID(), name: "L2", parentId: l1.id, sortIndex: 0, workspaceId: workspaceId, auth: .inheritFromParent, createdAt: Date(), updatedAt: Date())
+        let l3 = Collection(id: UUID(), name: "L3", parentId: l2.id, sortIndex: 0, workspaceId: workspaceId, auth: .inheritFromParent, createdAt: Date(), updatedAt: Date())
+        let l4 = Collection(id: UUID(), name: "L4", parentId: l3.id, sortIndex: 0, workspaceId: workspaceId, auth: .inheritFromParent, createdAt: Date(), updatedAt: Date())
+        colRepo.collections = [root, l1, l2, l3, l4]
+
+        // Another standalone collection to try moving under l4
+        let standalone = Collection(id: UUID(), name: "Standalone", parentId: nil, sortIndex: 1, workspaceId: workspaceId, auth: .none, createdAt: Date(), updatedAt: Date())
+        colRepo.collections.append(standalone)
+
+        let vm = makeViewModel(collectionRepository: colRepo)
+        await vm.loadTree()
+
+        // l4 is level 5 — dropping standalone under l4 would make level 6
+        let canDrop = vm.canDropCollection(standalone.id, intoParent: l4.id)
+        #expect(canDrop == false)
+    }
 }

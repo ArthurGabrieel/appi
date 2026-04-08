@@ -162,4 +162,60 @@ final class CollectionTreeViewModel {
             await loadTree()
         } catch {}
     }
+
+    func moveRequest(_ requestId: UUID, toCollection collectionId: UUID, atIndex: Int) async {
+        guard var request = requests.first(where: { $0.id == requestId }) else { return }
+        request.collectionId = collectionId
+        request.sortIndex = atIndex
+        request.updatedAt = Date()
+        do {
+            try await requestRepository.save(request)
+            await loadTree()
+        } catch {}
+    }
+
+    func moveCollection(_ collectionId: UUID, toParent parentId: UUID?, atIndex: Int) async {
+        guard var collection = collections.first(where: { $0.id == collectionId }) else { return }
+        guard canDropCollection(collectionId, intoParent: parentId) else { return }
+        collection.parentId = parentId
+        collection.sortIndex = atIndex
+        collection.auth = parentId == nil ? .none : collection.auth
+        collection.updatedAt = Date()
+        do {
+            try await collectionRepository.save(collection)
+            await loadTree()
+        } catch {}
+    }
+
+    func canDropCollection(_ collectionId: UUID, intoParent parentId: UUID?) -> Bool {
+        // Prevent cycle: cannot drop into own descendant
+        if let parentId {
+            var currentId: UUID? = parentId
+            while let id = currentId {
+                if id == collectionId { return false }
+                currentId = collections.first(where: { $0.id == id })?.parentId
+            }
+        }
+
+        // Depth check: count depth of target + subtree depth of dragged collection
+        let targetDepth = depth(of: parentId)
+        let subtreeDepth = maxSubtreeDepth(of: collectionId)
+        return targetDepth + subtreeDepth + 1 <= 5
+    }
+
+    private func depth(of collectionId: UUID?) -> Int {
+        var count = 0
+        var currentId = collectionId
+        while let id = currentId {
+            count += 1
+            currentId = collections.first(where: { $0.id == id })?.parentId
+        }
+        return count
+    }
+
+    private func maxSubtreeDepth(of collectionId: UUID) -> Int {
+        let children = collections.filter { $0.parentId == collectionId }
+        if children.isEmpty { return 0 }
+        return 1 + children.map { maxSubtreeDepth(of: $0.id) }.max()!
+    }
 }

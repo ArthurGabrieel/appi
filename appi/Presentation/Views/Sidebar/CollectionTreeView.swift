@@ -26,6 +26,7 @@ struct CollectionTreeView: View {
         case .request(let request):
             RequestRow(request: request)
                 .tag(request.id)
+                .draggable(request.id.uuidString)
                 .contextMenu { requestContextMenu(request) }
         }
     }
@@ -51,7 +52,19 @@ struct CollectionTreeView: View {
                     isExpanded: .constant(expandedCollections.contains(collection.id))
                 )
                 .tag(collection.id)
+                .draggable(collection.id.uuidString)
                 .contextMenu { collectionContextMenu(collection) }
+            }
+            .dropDestination(for: String.self) { items, _ in
+                guard let idString = items.first, let itemId = UUID(uuidString: idString) else { return false }
+                if viewModel.requests.contains(where: { $0.id == itemId }) {
+                    Task { await viewModel.moveRequest(itemId, toCollection: collection.id, atIndex: 0) }
+                    return true
+                } else if viewModel.canDropCollection(itemId, intoParent: collection.id) {
+                    Task { await viewModel.moveCollection(itemId, toParent: collection.id, atIndex: 0) }
+                    return true
+                }
+                return false
             }
         )
     }

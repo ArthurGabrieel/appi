@@ -32,15 +32,4 @@ final class MockRequestRepository: RequestRepository, @unchecked Sendable {
         deleteCalled = true
         requests.removeAll { $0.id == request.id }
     }
-
-    func duplicate(_ request: Request) async throws -> Request {
-        let copy = Request(
-            id: UUID(), name: "\(request.name) Copy", method: request.method,
-            url: request.url, headers: request.headers, body: request.body,
-            auth: request.auth, collectionId: request.collectionId,
-            sortIndex: request.sortIndex + 1, createdAt: Date(), updatedAt: Date()
-        )
-        requests.append(copy)
-        return copy
-    }
 }

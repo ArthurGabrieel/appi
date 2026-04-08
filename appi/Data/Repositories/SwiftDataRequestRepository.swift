@@ -87,14 +87,4 @@ actor SwiftDataRequestRepository: RequestRepository {
         }
     }
 
-    func duplicate(_ request: Request) async throws -> Request {
-        let copy = Request(
-            id: UUID(), name: "\(request.name) Copy", method: request.method,
-            url: request.url, headers: request.headers, body: request.body,
-            auth: request.auth, collectionId: request.collectionId,
-            sortIndex: request.sortIndex + 1, createdAt: Date(), updatedAt: Date()
-        )
-        try await save(copy)
-        return copy
-    }
 }

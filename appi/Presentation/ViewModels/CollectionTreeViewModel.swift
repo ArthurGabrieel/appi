@@ -161,26 +161,44 @@ final class CollectionTreeViewModel {
     }
 
     func duplicateRequest(_ request: Request) async {
+        let copy = Request(
+            id: UUID(), name: "\(request.name) Copy",
+            method: request.method, url: request.url,
+            headers: request.headers, body: request.body,
+            auth: request.auth, collectionId: request.collectionId,
+            sortIndex: 0,  // placeholder — saveReindexed sets the real value
+            createdAt: Date(), updatedAt: Date()
+        )
+        var items = children(of: request.collectionId)
+        let insertAt = items.firstIndex(where: { $0.id == request.id }).map { $0 + 1 } ?? items.count
+        items.insert(.request(copy), at: insertAt)
         do {
-            _ = try await requestRepository.duplicate(request)
+            try await requestRepository.save(copy)
+            try await saveReindexed(items)
             await loadTree()
         } catch {}
     }
 
     func moveRequest(_ requestId: UUID, toCollection collectionId: UUID, atIndex: Int) async {
         guard let request = requests.first(where: { $0.id == requestId }) else { return }
+        let sourceCollectionId = request.collectionId
         var movedRequest = request
         movedRequest.collectionId = collectionId
         var destItems = children(of: collectionId).filter { $0.id != requestId }
         destItems.insert(.request(movedRequest), at: min(atIndex, destItems.count))
         do {
             try await saveReindexed(destItems)
+            if sourceCollectionId != collectionId {
+                let sourceItems = children(of: sourceCollectionId).filter { $0.id != requestId }
+                try await saveReindexed(sourceItems)
+            }
             await loadTree()
         } catch {}
     }
 
     func moveCollection(_ collectionId: UUID, toParent parentId: UUID?, atIndex: Int) async {
         guard var collection = collections.first(where: { $0.id == collectionId }) else { return }
+        let sourceParentId = collection.parentId
         guard canDropCollection(collectionId, intoParent: parentId) else { return }
         collection.parentId = parentId
         if parentId == nil, collection.auth == .inheritFromParent {
@@ -191,6 +209,10 @@ final class CollectionTreeViewModel {
         destItems.insert(.collection(collection), at: min(atIndex, destItems.count))
         do {
             try await saveReindexed(destItems)
+            if sourceParentId != parentId {
+                let sourceItems = children(of: sourceParentId).filter { $0.id != collectionId }
+                try await saveReindexed(sourceItems)
+            }
             await loadTree()
         } catch {}
     }

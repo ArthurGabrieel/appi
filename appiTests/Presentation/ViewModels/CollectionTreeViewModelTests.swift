@@ -301,6 +301,79 @@ struct CollectionTreeViewModelTests {
         #expect(roots.first?.name == "Auth API")
     }
 
+    @Test("moveRequest re-indexes siblings left in source collection")
+    func moveRequestReindexesSourceSiblings() async throws {
+        let colRepo = MockCollectionRepository()
+        let col1 = Collection(id: UUID(), name: "Source", parentId: nil, sortIndex: 0, workspaceId: workspaceId, auth: .none, createdAt: Date(), updatedAt: Date())
+        let col2 = Collection(id: UUID(), name: "Dest", parentId: nil, sortIndex: 1, workspaceId: workspaceId, auth: .none, createdAt: Date(), updatedAt: Date())
+        colRepo.collections = [col1, col2]
+
+        let reqRepo = MockRequestRepository()
+        let r0 = Request(id: UUID(), name: "R0", method: .get, url: "/r0", headers: [], body: .none, auth: .inheritFromParent, collectionId: col1.id, sortIndex: 0, createdAt: Date(), updatedAt: Date())
+        let r1 = Request(id: UUID(), name: "R1", method: .get, url: "/r1", headers: [], body: .none, auth: .inheritFromParent, collectionId: col1.id, sortIndex: 1, createdAt: Date(), updatedAt: Date())
+        let r2 = Request(id: UUID(), name: "R2", method: .get, url: "/r2", headers: [], body: .none, auth: .inheritFromParent, collectionId: col1.id, sortIndex: 2, createdAt: Date(), updatedAt: Date())
+        reqRepo.requests = [r0, r1, r2]
+
+        let vm = makeViewModel(collectionRepository: colRepo, requestRepository: reqRepo)
+        await vm.loadTree()
+
+        // Move middle request to another collection — leaves gap at index 1
+        await vm.moveRequest(r1.id, toCollection: col2.id, atIndex: 0)
+
+        // Source siblings must be compacted: r0→0, r2→1 (no gap)
+        let remaining = vm.requests.filter { $0.collectionId == col1.id }.sorted { $0.sortIndex < $1.sortIndex }
+        #expect(remaining.map(\.sortIndex) == [0, 1])
+        #expect(remaining.map(\.name) == ["R0", "R2"])
+    }
+
+    @Test("moveCollection re-indexes siblings left in source parent")
+    func moveCollectionReindexesSourceSiblings() async throws {
+        let colRepo = MockCollectionRepository()
+        let root = Collection(id: UUID(), name: "Root", parentId: nil, sortIndex: 0, workspaceId: workspaceId, auth: .none, createdAt: Date(), updatedAt: Date())
+        let c0 = Collection(id: UUID(), name: "C0", parentId: nil, sortIndex: 1, workspaceId: workspaceId, auth: .none, createdAt: Date(), updatedAt: Date())
+        let c1 = Collection(id: UUID(), name: "C1", parentId: nil, sortIndex: 2, workspaceId: workspaceId, auth: .none, createdAt: Date(), updatedAt: Date())
+        let c2 = Collection(id: UUID(), name: "C2", parentId: nil, sortIndex: 3, workspaceId: workspaceId, auth: .none, createdAt: Date(), updatedAt: Date())
+        colRepo.collections = [root, c0, c1, c2]
+
+        let vm = makeViewModel(collectionRepository: colRepo)
+        await vm.loadTree()
+
+        // Move c1 under root — leaves gap at position 2 in root-level siblings
+        await vm.moveCollection(c1.id, toParent: root.id, atIndex: 0)
+
+        // Remaining root siblings: root(0), c0(1), c2(2) — no gap
+        let rootSiblings = vm.collections.filter { $0.parentId == nil }.sorted { $0.sortIndex < $1.sortIndex }
+        #expect(rootSiblings.map(\.sortIndex) == [0, 1, 2])
+        #expect(rootSiblings.map(\.name) == ["Root", "C0", "C2"])
+    }
+
+    @Test("duplicateRequest inserts copy after original with contiguous sortIndex")
+    func duplicateRequestInsertsAfterOriginal() async throws {
+        let colRepo = MockCollectionRepository()
+        let col = Collection(id: UUID(), name: "API", parentId: nil, sortIndex: 0, workspaceId: workspaceId, auth: .none, createdAt: Date(), updatedAt: Date())
+        colRepo.collections = [col]
+
+        let reqRepo = MockRequestRepository()
+        let r0 = Request(id: UUID(), name: "Login", method: .post, url: "/login", headers: [], body: .none, auth: .inheritFromParent, collectionId: col.id, sortIndex: 0, createdAt: Date(), updatedAt: Date())
+        let r1 = Request(id: UUID(), name: "Logout", method: .post, url: "/logout", headers: [], body: .none, auth: .inheritFromParent, collectionId: col.id, sortIndex: 1, createdAt: Date(), updatedAt: Date())
+        reqRepo.requests = [r0, r1]
+
+        let vm = makeViewModel(collectionRepository: colRepo, requestRepository: reqRepo)
+        await vm.loadTree()
+
+        await vm.duplicateRequest(r0)
+
+        // Expect: Login(0), Login Copy(1), Logout(2) — no index collision
+        let sorted = vm.requests.filter { $0.collectionId == col.id }.sorted { $0.sortIndex < $1.sortIndex }
+        #expect(sorted.count == 3)
+        #expect(sorted[0].name == "Login")
+        #expect(sorted[0].sortIndex == 0)
+        #expect(sorted[1].name == "Login Copy")
+        #expect(sorted[1].sortIndex == 1)
+        #expect(sorted[2].name == "Logout")
+        #expect(sorted[2].sortIndex == 2)
+    }
+
     @Test("deleteRequest calls cleanupOrphanedLinks on tabRepository")
     func deleteRequestCleansUpOrphans() async throws {
         let colRepo = MockCollectionRepository()

@@ -83,4 +83,19 @@ struct AuthResolverTests {
             _ = try await resolver.resolve(for: .oauth2(config), chain: [])
         }
     }
+
+    @Test("OAuth2 refresh failure propagates as AuthError")
+    func oauth2RefreshFailurePropagates() async throws {
+        let mockService = MockAuthService()
+        let tokenSet = TokenSet(accessToken: "valid", refreshToken: "rt", expiresAt: Date.now.addingTimeInterval(3600))
+        mockService.loadTokenResult = tokenSet
+        mockService.shouldThrowOnRefresh = true
+
+        let resolver = makeResolver(authService: mockService)
+        let config = OAuth2Config(authURL: "https://auth", tokenURL: "https://token",
+                                  clientId: "id", clientSecret: nil, scopes: [], redirectURI: "appi://cb")
+        await #expect(throws: AuthError.refreshFailed(AuthError.tokenExpired)) {
+            _ = try await resolver.resolve(for: .oauth2(config), chain: [])
+        }
+    }
 }

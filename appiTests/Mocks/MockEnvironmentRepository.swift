@@ -3,6 +3,7 @@ import Foundation
 
 final class MockEnvironmentRepository: EnvironmentRepository, @unchecked Sendable {
     var environments: [Environment] = []
+    var saveError: (any Error)?
     var saveCalled = false
     var activateCalled = false
     var activatedId: UUID?
@@ -20,6 +21,7 @@ final class MockEnvironmentRepository: EnvironmentRepository, @unchecked Sendabl
     }
 
     func save(_ environment: Environment) async throws {
+        if let saveError { throw saveError }
         saveCalled = true
         if let index = environments.firstIndex(where: { $0.id == environment.id }) {
             environments[index] = environment

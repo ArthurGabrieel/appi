@@ -13,6 +13,7 @@ final class DependencyContainer {
     let envResolver: any EnvResolver
     let authResolver: any AuthResolver
     let keychainService: any KeychainService
+    let authService: any AuthService
 
     init(modelContainer: ModelContainer) {
         self.requestRepository = SwiftDataRequestRepository(modelContainer: modelContainer)
@@ -23,8 +24,10 @@ final class DependencyContainer {
         self.tabRepository = SwiftDataTabRepository(modelContainer: modelContainer)
         self.httpClient = URLSessionHTTPClient()
         self.envResolver = DefaultEnvResolver()
-        self.authResolver = DefaultAuthResolver()
         self.keychainService = AppleKeychainService()
+        let authService = PKCEAuthService(keychainService: keychainService)
+        self.authService = authService
+        self.authResolver = DefaultAuthResolver(authService: authService)
     }
 
     // MARK: - ViewModel Factories

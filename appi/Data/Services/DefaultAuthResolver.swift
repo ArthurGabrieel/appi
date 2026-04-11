@@ -1,11 +1,16 @@
+// appi/Data/Services/DefaultAuthResolver.swift
 import Foundation
 
 struct DefaultAuthResolver: AuthResolver {
+    private let authService: any AuthService
+
+    init(authService: any AuthService) {
+        self.authService = authService
+    }
+
     nonisolated func resolve(for auth: AuthConfig, chain: [Collection]) async throws -> ResolvedAuth {
-        // Stub — full implementation in Sprint 3
         switch auth {
         case .inheritFromParent:
-            // Walk chain to find first non-inherit auth
             for collection in chain {
                 if case .inheritFromParent = collection.auth { continue }
                 return try await resolve(for: collection.auth, chain: [])
@@ -17,9 +22,12 @@ struct DefaultAuthResolver: AuthResolver {
             return .basic(username: username, password: password)
         case .bearer(let token):
             return .bearer(token: token)
-        case .oauth2:
-            // OAuth2 token resolution requires AuthService — Sprint 3
-            return .none
+        case .oauth2(let config):
+            guard let stored = try authService.loadToken(for: config) else {
+                throw AuthError.tokenExpired
+            }
+            let current = try await authService.refreshIfNeeded(tokenSet: stored, config: config)
+            return .oauth2(config, tokenSet: current)
         }
     }
 }

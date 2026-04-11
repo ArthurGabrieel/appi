@@ -23,11 +23,21 @@ enum RequestError: Error, LocalizedError, Equatable {
     }
 }
 
-enum AuthError: Error, LocalizedError {
+enum AuthError: Error, LocalizedError, Equatable {
     case tokenExpired
     case refreshFailed(Error)
     case authorizationDenied
     case invalidConfiguration(String)
+
+    static func == (lhs: AuthError, rhs: AuthError) -> Bool {
+        switch (lhs, rhs) {
+        case (.tokenExpired, .tokenExpired): return true
+        case (.authorizationDenied, .authorizationDenied): return true
+        case (.invalidConfiguration(let l), .invalidConfiguration(let r)): return l == r
+        case (.refreshFailed, .refreshFailed): return true
+        default: return false
+        }
+    }
 
     nonisolated var errorDescription: String? {
         switch self {

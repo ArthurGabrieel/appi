@@ -94,8 +94,13 @@ struct AuthResolverTests {
         let resolver = makeResolver(authService: mockService)
         let config = OAuth2Config(authURL: "https://auth", tokenURL: "https://token",
                                   clientId: "id", clientSecret: nil, scopes: [], redirectURI: "appi://cb")
-        await #expect(throws: AuthError.refreshFailed(AuthError.tokenExpired)) {
+        #expect(mockService.refreshCalled)
+        await #expect {
             _ = try await resolver.resolve(for: .oauth2(config), chain: [])
+        } throws: { error in
+            guard let authError = error as? AuthError,
+                  case AuthError.refreshFailed(let inner) = authError else { return false }
+            return inner as? AuthError == .tokenExpired
         }
     }
 }

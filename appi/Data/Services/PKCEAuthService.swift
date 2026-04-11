@@ -54,8 +54,7 @@ actor PKCEAuthService: AuthService {
                 callbackURLScheme: callbackScheme
             ) { url, error in
                 Task { await self.clearCurrentSession() }
-                if let error {
-                    _ = error
+                if error != nil {
                     continuation.resume(throwing: AuthError.authorizationDenied)
                     return
                 }
@@ -193,7 +192,9 @@ actor PKCEAuthService: AuthService {
         }
         guard (200..<300).contains(http.statusCode) else {
             if let errorResponse = try? JSONDecoder().decode(TokenErrorResponse.self, from: data) {
-                throw AuthError.refreshFailed(AuthError.invalidConfiguration("Server error: \(errorResponse.error)"))
+                let detail = [errorResponse.error, errorResponse.errorDescription]
+                    .compactMap { $0 }.joined(separator: ": ")
+                throw AuthError.refreshFailed(AuthError.invalidConfiguration("Server error: \(detail)"))
             }
             throw AuthError.refreshFailed(AuthError.invalidConfiguration("HTTP \(http.statusCode)"))
         }

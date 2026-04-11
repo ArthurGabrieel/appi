@@ -43,8 +43,9 @@ actor PKCEAuthService: AuthService {
     func authorize(with config: OAuth2Config) async throws -> TokenSet {
         let codeVerifier = generateCodeVerifier()
         let codeChallenge = generateCodeChallenge(from: codeVerifier)
+        let state = UUID().uuidString
 
-        let authURL = try buildAuthURL(config: config, codeChallenge: codeChallenge)
+        let authURL = try buildAuthURL(config: config, codeChallenge: codeChallenge, state: state)
         let callbackScheme = try extractScheme(from: config.redirectURI)
 
         let callbackURL: URL = try await withCheckedThrowingContinuation { continuation in
@@ -53,7 +54,8 @@ actor PKCEAuthService: AuthService {
                 callbackURLScheme: callbackScheme
             ) { url, error in
                 Task { await self.clearCurrentSession() }
-                if error != nil {
+                if let error {
+                    _ = error
                     continuation.resume(throwing: AuthError.authorizationDenied)
                     return
                 }
@@ -73,7 +75,7 @@ actor PKCEAuthService: AuthService {
             }
         }
 
-        let code = try extractCode(from: callbackURL)
+        let code = try extractCode(from: callbackURL, state: state)
         let tokenSet = try await exchangeCode(code, codeVerifier: codeVerifier, config: config)
         try saveToken(tokenSet, for: config)
         return tokenSet
@@ -114,7 +116,7 @@ actor PKCEAuthService: AuthService {
         return Data(digest).base64URLEncoded()
     }
 
-    private func buildAuthURL(config: OAuth2Config, codeChallenge: String) throws -> URL {
+    private func buildAuthURL(config: OAuth2Config, codeChallenge: String, state: String) throws -> URL {
         guard var components = URLComponents(string: config.authURL) else {
             throw AuthError.invalidConfiguration("Invalid auth URL: \(config.authURL)")
         }
@@ -126,7 +128,7 @@ actor PKCEAuthService: AuthService {
             URLQueryItem(name: "scope", value: config.scopes.joined(separator: " ")),
             URLQueryItem(name: "code_challenge", value: codeChallenge),
             URLQueryItem(name: "code_challenge_method", value: "S256"),
-            URLQueryItem(name: "state", value: UUID().uuidString),
+            URLQueryItem(name: "state", value: state),
         ]
         components.queryItems = items
         guard let url = components.url else {
@@ -142,10 +144,17 @@ actor PKCEAuthService: AuthService {
         return scheme
     }
 
-    private func extractCode(from callbackURL: URL) throws -> String {
-        guard let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
-              let code = components.queryItems?.first(where: { $0.name == "code" })?.value
+    private func extractCode(from callbackURL: URL, state expectedState: String) throws -> String {
+        guard let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false) else {
+            throw AuthError.authorizationDenied
+        }
+        let items = components.queryItems ?? []
+        guard let returnedState = items.first(where: { $0.name == "state" })?.value,
+              returnedState == expectedState
         else {
+            throw AuthError.authorizationDenied
+        }
+        guard let code = items.first(where: { $0.name == "code" })?.value else {
             throw AuthError.authorizationDenied
         }
         return code
@@ -172,26 +181,51 @@ actor PKCEAuthService: AuthService {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        let rfc3986Unreserved = CharacterSet.alphanumerics.union(.init(charactersIn: "-._~"))
         request.httpBody = params
-            .map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0.value)" }
+            .map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: rfc3986Unreserved) ?? $0.value)" }
             .joined(separator: "&")
             .data(using: .utf8)
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw AuthError.refreshFailed(AuthError.tokenExpired)
+        guard let http = response as? HTTPURLResponse else {
+            throw AuthError.refreshFailed(AuthError.invalidConfiguration("No HTTP response"))
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            if let errorResponse = try? JSONDecoder().decode(TokenErrorResponse.self, from: data) {
+                throw AuthError.refreshFailed(AuthError.invalidConfiguration("Server error: \(errorResponse.error)"))
+            }
+            throw AuthError.refreshFailed(AuthError.invalidConfiguration("HTTP \(http.statusCode)"))
         }
 
-        let json = try JSONDecoder().decode([String: String].self, from: data)
-        guard let accessToken = json["access_token"] else {
-            throw AuthError.refreshFailed(AuthError.tokenExpired)
-        }
-        let expiresIn = Double(json["expires_in"] ?? "3600") ?? 3600
+        let tokenResponse = try JSONDecoder().decode(TokenResponse.self, from: data)
         return TokenSet(
-            accessToken: accessToken,
-            refreshToken: json["refresh_token"],
-            expiresAt: Date.now.addingTimeInterval(expiresIn)
+            accessToken: tokenResponse.accessToken,
+            refreshToken: tokenResponse.refreshToken,
+            expiresAt: Date.now.addingTimeInterval(tokenResponse.expiresIn ?? 3600)
         )
+    }
+}
+
+// MARK: - Token response models
+
+private struct TokenResponse: Decodable {
+    let accessToken: String
+    let refreshToken: String?
+    let expiresIn: Double?
+    enum CodingKeys: String, CodingKey {
+        case accessToken = "access_token"
+        case refreshToken = "refresh_token"
+        case expiresIn = "expires_in"
+    }
+}
+
+private struct TokenErrorResponse: Decodable {
+    let error: String
+    let errorDescription: String?
+    enum CodingKeys: String, CodingKey {
+        case error
+        case errorDescription = "error_description"
     }
 }
 

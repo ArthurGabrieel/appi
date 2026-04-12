@@ -61,4 +61,8 @@ final class DependencyContainer {
             requestRepository: requestRepository
         )
     }
+
+    func makeEnvironmentViewModel(workspaceId: UUID) -> EnvironmentViewModel {
+        EnvironmentViewModel(workspaceId: workspaceId, environmentRepository: environmentRepository)
+    }
 }

@@ -6,7 +6,9 @@ private struct DuplicateVariableKeyError: LocalizedError {
     var errorDescription: String? { "Duplicate variable key: \(key)" }
 }
 
-actor SwiftDataEnvironmentRepository: ModelActor, EnvironmentRepository {
+// Manual ModelActor conformance (not @ModelActor macro) because the macro does not
+// support injecting additional dependencies via a custom init.
+actor SwiftDataEnvironmentRepository: EnvironmentRepository, ModelActor {
     nonisolated let modelExecutor: any ModelExecutor
     nonisolated let modelContainer: ModelContainer
     private let keychainService: any KeychainService
@@ -91,9 +93,8 @@ actor SwiftDataEnvironmentRepository: ModelActor, EnvironmentRepository {
                 if variable.isSecret {
                     // Write plaintext to Keychain, store sentinel in SwiftData
                     let key = secretKey(environmentId: environment.id, variableId: variable.id)
-                    if let data = variable.value.data(using: .utf8) {
-                        try keychainService.save(data, for: key)
-                    }
+                    let data = Data(variable.value.utf8)
+                    try keychainService.save(data, for: key)
                     model.value = ""
                 } else {
                     // Non-secret: delete any stale Keychain item
@@ -109,9 +110,8 @@ actor SwiftDataEnvironmentRepository: ModelActor, EnvironmentRepository {
             for variableModel in model.variables {
                 if variableModel.isSecret {
                     let key = secretKey(environmentId: environment.id, variableId: variableModel.id)
-                    if let data = variableModel.value.data(using: .utf8) {
-                        try keychainService.save(data, for: key)
-                    }
+                    let data = Data(variableModel.value.utf8)
+                    try keychainService.save(data, for: key)
                     variableModel.value = ""
                 }
             }

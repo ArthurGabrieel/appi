@@ -101,6 +101,7 @@ struct EnvironmentViewModelTests {
         await vm.loadEnvironments()
         await vm.deactivate()
 
+        #expect(repo.saveCalled)
         #expect(vm.activeEnvironment == nil)
     }
 
@@ -114,6 +115,7 @@ struct EnvironmentViewModelTests {
         await vm.loadEnvironments()
         await vm.rename(env.id, to: "Development")
 
+        #expect(repo.saveCalled)
         #expect(vm.environments.first?.name == "Development")
     }
 

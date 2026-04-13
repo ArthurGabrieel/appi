@@ -73,7 +73,7 @@ enum ImportError: Error, LocalizedError {
 enum PersistenceError: Error, LocalizedError {
     case saveFailed(Error)
     case fetchFailed(Error)
-    case deleteFailed(any Error)
+    case deleteFailed(Error)
     case migrationFailed(Error)
 
     nonisolated var errorDescription: String? {

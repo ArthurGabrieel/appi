@@ -20,11 +20,14 @@ final class DependencyContainer {
         self.collectionRepository = SwiftDataCollectionRepository(modelContainer: modelContainer)
         self.responseRepository = SwiftDataResponseRepository(modelContainer: modelContainer)
         self.workspaceRepository = SwiftDataWorkspaceRepository(modelContainer: modelContainer)
-        self.environmentRepository = SwiftDataEnvironmentRepository(modelContainer: modelContainer)
+        self.keychainService = AppleKeychainService()
+        self.environmentRepository = SwiftDataEnvironmentRepository(
+            modelContainer: modelContainer,
+            keychainService: keychainService
+        )
         self.tabRepository = SwiftDataTabRepository(modelContainer: modelContainer)
         self.httpClient = URLSessionHTTPClient()
         self.envResolver = DefaultEnvResolver()
-        self.keychainService = AppleKeychainService()
         let authService = PKCEAuthService(keychainService: keychainService)
         self.authService = authService
         self.authResolver = DefaultAuthResolver(authService: authService)

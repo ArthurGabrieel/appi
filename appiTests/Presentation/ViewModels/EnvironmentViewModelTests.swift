@@ -73,12 +73,13 @@ struct EnvironmentViewModelTests {
     @Test("toggleVariableSecret updates isSecret and saves")
     func toggleVariableSecret() async throws {
         let repo = MockEnvironmentRepository()
+        let envId = UUID()
         let variable = EnvVariable(
             id: UUID(), key: "TOKEN", value: "secret",
-            isSecret: false, isEnabled: true, environmentId: UUID()
+            isSecret: false, isEnabled: true, environmentId: envId
         )
         let env = Environment(
-            id: UUID(), name: "Dev", isActive: true, workspaceId: workspaceId,
+            id: envId, name: "Dev", isActive: true, workspaceId: workspaceId,
             variables: [variable], createdAt: Date(), updatedAt: Date()
         )
         repo.environments = [env]
@@ -88,6 +89,32 @@ struct EnvironmentViewModelTests {
         await vm.toggleVariableSecret(variable.id, in: env.id)
 
         #expect(vm.environments.first?.variables.first?.isSecret == true)
+    }
+
+    @Test("deactivate clears active environment")
+    func deactivate() async throws {
+        let repo = MockEnvironmentRepository()
+        let env = Environment(id: UUID(), name: "Dev", isActive: true, workspaceId: workspaceId, variables: [], createdAt: Date(), updatedAt: Date())
+        repo.environments = [env]
+
+        let vm = makeVM(repo: repo)
+        await vm.loadEnvironments()
+        await vm.deactivate()
+
+        #expect(vm.activeEnvironment == nil)
+    }
+
+    @Test("rename updates environment name")
+    func rename() async throws {
+        let repo = MockEnvironmentRepository()
+        let env = Environment(id: UUID(), name: "Dev", isActive: true, workspaceId: workspaceId, variables: [], createdAt: Date(), updatedAt: Date())
+        repo.environments = [env]
+
+        let vm = makeVM(repo: repo)
+        await vm.loadEnvironments()
+        await vm.rename(env.id, to: "Development")
+
+        #expect(vm.environments.first?.name == "Development")
     }
 
     @Test("duplicate variable key error is surfaced inline")

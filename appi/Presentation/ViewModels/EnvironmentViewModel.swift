@@ -62,7 +62,7 @@ final class EnvironmentViewModel {
             error = nil
             await loadEnvironments()
         } catch {
-            self.error = error as? any LocalizedError ?? PersistenceError.saveFailed(error)
+            self.error = error as? any LocalizedError ?? PersistenceError.deleteFailed(error)
         }
     }
 

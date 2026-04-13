@@ -73,6 +73,7 @@ enum ImportError: Error, LocalizedError {
 enum PersistenceError: Error, LocalizedError {
     case saveFailed(Error)
     case fetchFailed(Error)
+    case deleteFailed(any Error)
     case migrationFailed(Error)
 
     nonisolated var errorDescription: String? {
@@ -81,6 +82,8 @@ enum PersistenceError: Error, LocalizedError {
             return String(localized: "error.persistence.saveFailed")
         case .fetchFailed:
             return String(localized: "error.persistence.fetchFailed")
+        case .deleteFailed:
+            return String(localized: "error.persistence.deleteFailed")
         case .migrationFailed:
             return String(localized: "error.persistence.migrationFailed")
         }

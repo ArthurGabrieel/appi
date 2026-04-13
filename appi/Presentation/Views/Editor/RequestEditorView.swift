@@ -7,7 +7,11 @@ struct RequestEditorView: View {
     @State private var selectedRequestTab: RequestTab = .headers
 
     enum RequestTab: String, CaseIterable {
-        case headers, body
+        case headers, body, auth
+    }
+
+    private var unresolvedKeys: [String] {
+        viewModel.unresolvedKeys(environment: activeEnvironment)
     }
 
     var body: some View {
@@ -17,6 +21,7 @@ struct RequestEditorView: View {
                 URLBarView(
                     method: $viewModel.draft.method,
                     url: $viewModel.draft.url,
+                    unresolvedKeys: unresolvedKeys,
                     isLoading: viewModel.isLoading,
                     onSend: { viewModel.startSend(environment: activeEnvironment) },
                     onCancel: { viewModel.cancelRequest() }
@@ -25,6 +30,7 @@ struct RequestEditorView: View {
                 Picker("", selection: $selectedRequestTab) {
                     Text(String(localized: "request.headers")).tag(RequestTab.headers)
                     Text(String(localized: "request.body")).tag(RequestTab.body)
+                    Text(String(localized: "request.auth")).tag(RequestTab.auth)
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal)
@@ -34,6 +40,21 @@ struct RequestEditorView: View {
                     HeadersEditorView(headers: $viewModel.draft.headers)
                 case .body:
                     BodyEditorView(requestBody: $viewModel.draft.body)
+                case .auth:
+                    AuthEditorView(
+                        auth: $viewModel.draft.auth,
+                        allowInherit: true,
+                        effectiveAuth: viewModel.effectiveAuth,
+                        authError: viewModel.authError,
+                        onClearAuthError: { viewModel.authError = nil },
+                        onGetToken: { config in
+                            await viewModel.authorizeOAuth2(config: config)
+                        }
+                    )
+                    .onChange(of: viewModel.draft.auth) { _, _ in
+                        Task { await viewModel.loadEffectiveAuth() }
+                    }
+                    .task { await viewModel.loadEffectiveAuth() }
                 }
             }
 

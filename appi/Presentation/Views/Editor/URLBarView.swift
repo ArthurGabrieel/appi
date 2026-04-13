@@ -3,6 +3,7 @@ import SwiftUI
 struct URLBarView: View {
     @Binding var method: HTTPMethod
     @Binding var url: String
+    let unresolvedKeys: [String]
     let isLoading: Bool
     let onSend: () -> Void
     let onCancel: () -> Void
@@ -17,8 +18,7 @@ struct URLBarView: View {
             .frame(width: 100)
             .accessibilityLabel(String(localized: "urlBar.method"))
 
-            TextField(String(localized: "urlBar.placeholder"), text: $url)
-                .textFieldStyle(.roundedBorder)
+            VariableHighlightingTextField(text: $url, unresolvedKeys: unresolvedKeys, placeholder: String(localized: "urlBar.placeholder"))
                 .accessibilityLabel(String(localized: "urlBar.url"))
 
             if isLoading {

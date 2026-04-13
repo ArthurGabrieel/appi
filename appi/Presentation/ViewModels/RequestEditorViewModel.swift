@@ -10,6 +10,9 @@ final class RequestEditorViewModel {
     var response: Response?
     var error: (any LocalizedError)?
     var isLoading = false
+    var effectiveAuth: AuthConfig?
+    var isLoadingEffectiveAuth = false
+    var authError: (any LocalizedError)?
 
     private var sendTask: Task<Void, Never>?
     private var activeSendID: UUID?
@@ -21,6 +24,7 @@ final class RequestEditorViewModel {
     private let httpClient: any HTTPClient
     private let envResolver: any EnvResolver
     private let authResolver: any AuthResolver
+    private let authService: any AuthService
 
     init(
         draft: RequestDraft,
@@ -31,7 +35,8 @@ final class RequestEditorViewModel {
         collectionRepository: any CollectionRepository,
         httpClient: any HTTPClient,
         envResolver: any EnvResolver,
-        authResolver: any AuthResolver
+        authResolver: any AuthResolver,
+        authService: any AuthService
     ) {
         self.draft = draft
         self.tab = tab
@@ -42,6 +47,7 @@ final class RequestEditorViewModel {
         self.httpClient = httpClient
         self.envResolver = envResolver
         self.authResolver = authResolver
+        self.authService = authService
     }
 
     @MainActor
@@ -63,6 +69,7 @@ final class RequestEditorViewModel {
         activeSendID = sendID
         isLoading = true
         error = nil
+        authError = nil
 
         let task = Task { [weak self] in
             guard let self else { return }
@@ -97,6 +104,48 @@ final class RequestEditorViewModel {
 
     var isDirty: Bool {
         tab.isDirty
+    }
+
+    @MainActor
+    func loadEffectiveAuth() async {
+        guard case .inheritFromParent = draft.auth else {
+            effectiveAuth = nil
+            return
+        }
+        isLoadingEffectiveAuth = true
+        defer { isLoadingEffectiveAuth = false }
+        do {
+            let chain = try await collectionRepository.ancestorChain(for: draft.collectionId)
+            effectiveAuth = Self.firstConcreteAuth(in: chain)
+        } catch {
+            effectiveAuth = nil
+        }
+    }
+
+    // Pure chain-walk — never touches Keychain or triggers token refresh.
+    private static func firstConcreteAuth(in chain: [Collection]) -> AuthConfig {
+        for collection in chain {
+            if case .inheritFromParent = collection.auth { continue }
+            return collection.auth
+        }
+        return .none
+    }
+
+    @MainActor
+    func authorizeOAuth2(config: OAuth2Config) async -> Bool {
+        do {
+            authError = nil
+            _ = try await authService.authorize(with: config)
+            return true
+        } catch {
+            authError = error as? any LocalizedError
+                ?? AuthError.invalidConfiguration("Unknown OAuth2 error")
+            return false
+        }
+    }
+
+    func unresolvedKeys(environment: Environment?) -> [String] {
+        envResolver.unresolvedKeys(in: draft, environment: environment)
     }
 
     @MainActor
@@ -140,7 +189,7 @@ final class RequestEditorViewModel {
             error = RequestError.cancelled
         } catch let authError as AuthError {
             guard isActiveSend(sendID) else { return }
-            error = authError
+            self.authError = authError
         } catch let persistenceError as PersistenceError {
             guard isActiveSend(sendID) else { return }
             error = persistenceError

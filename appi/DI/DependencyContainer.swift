@@ -45,7 +45,8 @@ final class DependencyContainer {
             collectionRepository: collectionRepository,
             httpClient: httpClient,
             envResolver: envResolver,
-            authResolver: authResolver
+            authResolver: authResolver,
+            authService: authService
         )
     }
 

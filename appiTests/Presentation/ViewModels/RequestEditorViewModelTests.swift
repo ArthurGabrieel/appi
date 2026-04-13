@@ -9,6 +9,7 @@ struct RequestEditorViewModelTests {
         httpClient: any HTTPClient = MockHTTPClient(),
         envResolver: MockEnvResolver = MockEnvResolver(),
         authResolver: MockAuthResolver = MockAuthResolver(),
+        authService: MockAuthService = MockAuthService(),
         requestRepository: MockRequestRepository = MockRequestRepository(),
         responseRepository: MockResponseRepository = MockResponseRepository(),
         collectionRepository: MockCollectionRepository = MockCollectionRepository(),
@@ -30,7 +31,8 @@ struct RequestEditorViewModelTests {
             collectionRepository: collectionRepository,
             httpClient: httpClient,
             envResolver: envResolver,
-            authResolver: authResolver
+            authResolver: authResolver,
+            authService: authService
         )
     }
 

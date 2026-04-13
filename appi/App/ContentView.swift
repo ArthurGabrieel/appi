@@ -6,12 +6,13 @@ struct ContentView: View {
     @State private var collectionTreeViewModel: CollectionTreeViewModel?
     @State private var tabBarViewModel: TabBarViewModel?
     @State private var editorViewModel: RequestEditorViewModel?
+    @State private var environmentViewModel: EnvironmentViewModel?
     @State private var isLoaded = false
 
     var body: some View {
         NavigationSplitView {
-            if let collectionTreeViewModel {
-                SidebarView(viewModel: collectionTreeViewModel)
+            if let collectionTreeViewModel, let environmentViewModel {
+                SidebarView(viewModel: collectionTreeViewModel, environmentViewModel: environmentViewModel)
             }
         } detail: {
             VStack(spacing: 0) {
@@ -51,6 +52,7 @@ struct ContentView: View {
 
             let treeVM = container.makeCollectionTreeViewModel(workspaceId: workspace.id)
             let tabVM = container.makeTabBarViewModel()
+            let envVM = container.makeEnvironmentViewModel(workspaceId: workspace.id)
 
             // Wire sidebar → tabs
             treeVM.onRequestSelected = { request in
@@ -62,9 +64,11 @@ struct ContentView: View {
 
             collectionTreeViewModel = treeVM
             tabBarViewModel = tabVM
+            environmentViewModel = envVM
 
             await treeVM.loadTree()
             await tabVM.loadTabs()
+            await envVM.loadEnvironments()
 
             updateEditor()
         }

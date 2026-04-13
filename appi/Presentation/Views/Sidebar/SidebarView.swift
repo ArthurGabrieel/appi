@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SidebarView: View {
     @Bindable var viewModel: CollectionTreeViewModel
+    @Bindable var environmentViewModel: EnvironmentViewModel
 
     var body: some View {
         VStack(spacing: 0) {
@@ -10,17 +11,7 @@ struct SidebarView: View {
 
             Divider()
 
-            // Environment picker placeholder — Sprint 3
-            HStack {
-                Image(systemName: "globe")
-                    .foregroundStyle(.secondary)
-                Text(String(localized: "sidebar.noEnvironment"))
-                    .foregroundStyle(.secondary)
-                    .font(.caption)
-                Spacer()
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            EnvironmentPickerView(viewModel: environmentViewModel)
         }
         .accessibilityLabel(String(localized: "sidebar.label"))
     }

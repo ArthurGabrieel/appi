@@ -81,6 +81,22 @@
         }
       }
     },
+    "env.newEnvironmentDefaultName" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Environment"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Novo ambiente"
+          }
+        }
+      }
+    },
     "env.list.label" : {
       "localizations" : {
         "en" : {
@@ -141,22 +157,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Gerenciar ambientes…"
-          }
-        }
-      }
-    },
-    "env.picker.noEnvironment" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No Environment"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nenhum ambiente"
           }
         }
       }

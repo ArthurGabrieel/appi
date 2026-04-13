@@ -25,7 +25,7 @@ struct ContentView: View {
                 }
 
                 if let editorViewModel {
-                    RequestEditorView(viewModel: editorViewModel, activeEnvironment: nil)
+                    RequestEditorView(viewModel: editorViewModel, activeEnvironment: environmentViewModel?.activeEnvironment)
                 } else {
                     EmptyStateView {
                         Task {

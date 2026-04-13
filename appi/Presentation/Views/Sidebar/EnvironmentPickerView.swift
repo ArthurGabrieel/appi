@@ -25,7 +25,7 @@ struct EnvironmentPickerView: View {
                         }
                     }
                     if !viewModel.environments.isEmpty { Divider() }
-                    Button(String(localized: "env.picker.noEnvironment")) {
+                    Button(String(localized: "env.picker.none")) {
                         Task { await viewModel.deactivate() }
                     }
                     Divider()
@@ -55,7 +55,7 @@ struct EnvironmentPickerView: View {
                     .accessibilityLabel(String(localized: "env.picker.error"))
             }
         }
-        .sheet(isPresented: $showEditor) {
+        .sheet(isPresented: $showEditor, onDismiss: { viewModel.clearError() }) {
             EnvironmentEditorSheet(viewModel: viewModel)
         }
     }

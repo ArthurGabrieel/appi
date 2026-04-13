@@ -61,7 +61,7 @@ struct EnvironmentEditorSheet: View {
                     Divider()
                     HStack {
                         Button {
-                            Task { await viewModel.createEnvironment(name: "New Environment") }
+                            Task { await viewModel.createEnvironment(name: String(localized: "env.newEnvironmentDefaultName")) }
                         } label: {
                             Image(systemName: "plus")
                         }

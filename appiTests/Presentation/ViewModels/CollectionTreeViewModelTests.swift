@@ -9,16 +9,19 @@ struct CollectionTreeViewModelTests {
     func makeViewModel(
         collectionRepository: MockCollectionRepository? = nil,
         requestRepository: MockRequestRepository? = nil,
-        tabRepository: MockTabRepository? = nil
+        tabRepository: MockTabRepository? = nil,
+        authService: MockAuthService? = nil
     ) -> CollectionTreeViewModel {
         let colRepo = collectionRepository ?? MockCollectionRepository()
         let reqRepo = requestRepository ?? MockRequestRepository()
         let tabRepo = tabRepository ?? MockTabRepository()
+        let authSvc = authService ?? MockAuthService()
         return CollectionTreeViewModel(
             workspaceId: workspaceId,
             collectionRepository: colRepo,
             requestRepository: reqRepo,
-            tabRepository: tabRepo
+            tabRepository: tabRepo,
+            authService: authSvc
         )
     }
 

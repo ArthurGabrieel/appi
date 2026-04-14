@@ -55,7 +55,8 @@ final class DependencyContainer {
             workspaceId: workspaceId,
             collectionRepository: collectionRepository,
             requestRepository: requestRepository,
-            tabRepository: tabRepository
+            tabRepository: tabRepository,
+            authService: authService
         )
     }
 

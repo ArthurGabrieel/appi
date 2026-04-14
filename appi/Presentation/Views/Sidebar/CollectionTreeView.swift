@@ -7,6 +7,7 @@ struct CollectionTreeView: View {
     @State private var renamingItemId: UUID?
     @State private var renameText: String = ""
     @State private var itemPendingDelete: SidebarItem?
+    @State private var collectionPendingAuth: Collection?
 
     var body: some View {
         List(selection: $viewModel.selectedItemId) {
@@ -55,6 +56,9 @@ struct CollectionTreeView: View {
             if let item = itemPendingDelete {
                 Text(String(localized: "sidebar.delete.message \(item.name)"))
             }
+        }
+        .sheet(item: $collectionPendingAuth) { collection in
+            CollectionAuthSheet(collection: collection, viewModel: viewModel)
         }
     }
 
@@ -210,6 +214,10 @@ struct CollectionTreeView: View {
         Divider()
         Button(String(localized: "sidebar.menu.rename")) {
             startRenaming(collection.id, currentName: collection.name)
+        }
+        Divider()
+        Button(String(localized: "sidebar.menu.editAuth")) {
+            collectionPendingAuth = collection
         }
         Divider()
         Button(String(localized: "sidebar.menu.delete"), role: .destructive) {

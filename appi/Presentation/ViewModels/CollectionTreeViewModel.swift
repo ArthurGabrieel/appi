@@ -36,22 +36,26 @@ final class CollectionTreeViewModel {
 
     var onRequestSelected: ((Request) -> Void)?
     var onTreeChanged: (() -> Void)?
+    var collectionAuthError: (any LocalizedError)?
 
     let workspaceId: UUID
     private let collectionRepository: any CollectionRepository
     private let requestRepository: any RequestRepository
     private let tabRepository: any TabRepository
+    private let authService: any AuthService
 
     init(
         workspaceId: UUID,
         collectionRepository: any CollectionRepository,
         requestRepository: any RequestRepository,
-        tabRepository: any TabRepository
+        tabRepository: any TabRepository,
+        authService: any AuthService
     ) {
         self.workspaceId = workspaceId
         self.collectionRepository = collectionRepository
         self.requestRepository = requestRepository
         self.tabRepository = tabRepository
+        self.authService = authService
     }
 
     func loadTree() async {
@@ -332,5 +336,63 @@ final class CollectionTreeViewModel {
         let children = collections.filter { $0.parentId == collectionId }
         if children.isEmpty { return 0 }
         return 1 + children.map { maxSubtreeDepth(of: $0.id) }.max()!
+    }
+
+    // MARK: - Auth
+
+    func updateCollectionAuth(_ collectionId: UUID, auth: AuthConfig) async -> Bool {
+        guard var collection = collections.first(where: { $0.id == collectionId }) else { return false }
+        let normalizedAuth: AuthConfig
+        if collection.parentId == nil, auth == .inheritFromParent {
+            normalizedAuth = .none
+        } else {
+            normalizedAuth = auth
+        }
+        collection.auth = normalizedAuth
+        collection.updatedAt = Date()
+        do {
+            try await collectionRepository.save(collection)
+            collectionAuthError = nil
+            await loadTree()
+            return true
+        } catch {
+            collectionAuthError = error as? any LocalizedError ?? PersistenceError.saveFailed(error)
+            return false
+        }
+    }
+
+    // Returns AuthConfig? (not ResolvedAuth?) — the preview must never trigger OAuth2 token refresh.
+    // authResolver is NOT called here.
+    func loadEffectiveCollectionAuth(_ collectionId: UUID) async -> AuthConfig? {
+        guard let collection = collections.first(where: { $0.id == collectionId }),
+              case .inheritFromParent = collection.auth
+        else { return nil }
+        do {
+            let chain = try await collectionRepository.ancestorChain(for: collectionId)
+            return firstConcreteAuth(in: chain)
+        } catch {
+            return nil
+        }
+    }
+
+    // Duplicate of the same helper in RequestEditorViewModel — kept local to avoid cross-ViewModel coupling.
+    private func firstConcreteAuth(in chain: [Collection]) -> AuthConfig {
+        for collection in chain {
+            if case .inheritFromParent = collection.auth { continue }
+            return collection.auth
+        }
+        return .none
+    }
+
+    func authorizeCollectionOAuth2(_ collectionId: UUID, config: OAuth2Config) async -> Bool {
+        do {
+            collectionAuthError = nil
+            _ = try await authService.authorize(with: config)
+            return true
+        } catch {
+            collectionAuthError = error as? any LocalizedError
+                ?? AuthError.invalidConfiguration(String(localized: "error.auth.unknown"))
+            return false
+        }
     }
 }

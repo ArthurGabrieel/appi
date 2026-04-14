@@ -1,6 +1,6 @@
 import Foundation
 
-@Observable
+@Observable @MainActor
 final class RequestEditorViewModel {
     var draft: RequestDraft {
         didSet { syncDraftToTab() }
@@ -139,7 +139,7 @@ final class RequestEditorViewModel {
             return true
         } catch {
             authError = error as? any LocalizedError
-                ?? AuthError.invalidConfiguration("Unknown OAuth2 error")
+                ?? AuthError.invalidConfiguration(String(localized: "error.auth.unknown"))
             return false
         }
     }

@@ -211,4 +211,85 @@ struct RequestEditorViewModelTests {
         #expect(tabRepo.saveCalled)
         #expect(tabRepo.savedTab?.draft.url == "https://updated.example.com")
     }
+
+    @Test("loadEffectiveAuth sets nil when auth is not inherit")
+    func loadEffectiveAuthNotInherit() async throws {
+        let vm = makeViewModel()
+        vm.draft.auth = .bearer(token: "tok")
+        await vm.loadEffectiveAuth()
+        #expect(vm.effectiveAuth == nil)
+    }
+
+    @Test("loadEffectiveAuth sets effectiveAuth from ancestor chain")
+    func loadEffectiveAuthFromChain() async throws {
+        let mockCollectionRepo = MockCollectionRepository()
+        let parentCollection = Collection(
+            id: UUID(), name: "Parent", parentId: nil, sortIndex: 0,
+            workspaceId: UUID(), auth: .bearer(token: "inherited"),
+            createdAt: Date(), updatedAt: Date()
+        )
+        mockCollectionRepo.ancestorChainResult = [parentCollection]
+        let vm = makeViewModel(collectionRepository: mockCollectionRepo)
+        vm.draft.auth = .inheritFromParent
+        await vm.loadEffectiveAuth()
+        #expect(vm.effectiveAuth == .bearer(token: "inherited"))
+    }
+
+    @Test("loadEffectiveAuth sets nil when repository throws")
+    func loadEffectiveAuthRepositoryError() async throws {
+        let mockCollectionRepo = MockCollectionRepository()
+        mockCollectionRepo.shouldThrowOnAncestorChain = true
+        let vm = makeViewModel(collectionRepository: mockCollectionRepo)
+        vm.draft.auth = .inheritFromParent
+        await vm.loadEffectiveAuth()
+        #expect(vm.effectiveAuth == nil)
+    }
+
+    @Test("authorizeOAuth2 returns true and clears authError on success")
+    func authorizeOAuth2Success() async throws {
+        let mockAuth = MockAuthService()
+        let token = TokenSet(accessToken: "tok", refreshToken: nil, expiresAt: Date.now.addingTimeInterval(3600))
+        mockAuth.tokenToReturn = token
+        let vm = makeViewModel(authService: mockAuth)
+        let result = await vm.authorizeOAuth2(config: makeOAuth2Config())
+        #expect(result == true)
+        #expect(vm.authError == nil)
+    }
+
+    @Test("authorizeOAuth2 returns false and sets authError on failure")
+    func authorizeOAuth2Failure() async throws {
+        let mockAuth = MockAuthService()
+        mockAuth.tokenToReturn = nil  // causes authorizationDenied
+        let vm = makeViewModel(authService: mockAuth)
+        let result = await vm.authorizeOAuth2(config: makeOAuth2Config())
+        #expect(result == false)
+        #expect(vm.authError != nil)
+    }
+
+    @Test("unresolvedKeys delegates to envResolver")
+    func unresolvedKeysDelegates() async throws {
+        let mockEnvResolver = MockEnvResolver()
+        mockEnvResolver.unresolvedKeysResult = ["BASE_URL", "TOKEN"]
+        let vm = makeViewModel(envResolver: mockEnvResolver)
+        let keys = vm.unresolvedKeys(environment: nil)
+        #expect(keys == ["BASE_URL", "TOKEN"])
+    }
+
+    @Test("send routes AuthError to authError not error")
+    func sendRoutesAuthErrorToAuthError() async throws {
+        let url = URL(string: "https://api.example.com")!
+        let mockEnvResolver = MockEnvResolver()
+        mockEnvResolver.resolveResult = .success(PreparedRequest(method: .get, url: url, headers: [], body: .none))
+        let mockAuthResolver = MockAuthResolver()
+        mockAuthResolver.shouldThrow = AuthError.tokenExpired
+        let vm = makeViewModel(envResolver: mockEnvResolver, authResolver: mockAuthResolver)
+        await vm.send(environment: nil)
+        #expect(vm.authError != nil)
+        #expect(vm.error == nil)
+    }
+
+    private func makeOAuth2Config() -> OAuth2Config {
+        OAuth2Config(authURL: "https://auth", tokenURL: "https://token",
+                     clientId: "id", clientSecret: nil, scopes: [], redirectURI: "appi://cb")
+    }
 }

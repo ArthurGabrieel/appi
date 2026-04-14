@@ -143,49 +143,52 @@ struct OAuth2ConfigFields: View {
     @State private var tokenStatus: String = ""
 
     var body: some View {
-        Section(String(localized: "auth.oauth2.config")) {
-            TextField(String(localized: "auth.oauth2.authURL"), text: $config.authURL)
-                .accessibilityLabel(String(localized: "auth.oauth2.authURL"))
-            TextField(String(localized: "auth.oauth2.tokenURL"), text: $config.tokenURL)
-                .accessibilityLabel(String(localized: "auth.oauth2.tokenURL"))
-            TextField(String(localized: "auth.oauth2.clientId"), text: $config.clientId)
-                .accessibilityLabel(String(localized: "auth.oauth2.clientId"))
-            SecureField(String(localized: "auth.oauth2.clientSecret"), text: Binding(
-                get: { config.clientSecret ?? "" },
-                set: { config.clientSecret = $0.isEmpty ? nil : $0 }
-            ))
-            .accessibilityLabel(String(localized: "auth.oauth2.clientSecret"))
-            TextField(String(localized: "auth.oauth2.scopes"), text: Binding(
-                get: { config.scopes.joined(separator: " ") },
-                set: { config.scopes = $0.split(separator: " ").map(String.init) }
-            ))
-            .accessibilityLabel(String(localized: "auth.oauth2.scopes"))
-            TextField(String(localized: "auth.oauth2.redirectURI"), text: $config.redirectURI)
-                .accessibilityLabel(String(localized: "auth.oauth2.redirectURI"))
-        }
-        if let onGetToken {
-            Section {
-                HStack {
-                    let label = hasAuthError
-                        ? String(localized: "auth.oauth2.reauthorize")
-                        : String(localized: "auth.oauth2.getToken")
-                    Button(label) {
-                        Task {
-                            tokenStatus = String(localized: "auth.oauth2.authorizing")
-                            let didSucceed = await onGetToken(config)
-                            tokenStatus = didSucceed
-                                ? String(localized: "auth.oauth2.tokenObtained")
-                                : ""
+        Group {
+            Section(String(localized: "auth.oauth2.config")) {
+                TextField(String(localized: "auth.oauth2.authURL"), text: $config.authURL)
+                    .accessibilityLabel(String(localized: "auth.oauth2.authURL"))
+                TextField(String(localized: "auth.oauth2.tokenURL"), text: $config.tokenURL)
+                    .accessibilityLabel(String(localized: "auth.oauth2.tokenURL"))
+                TextField(String(localized: "auth.oauth2.clientId"), text: $config.clientId)
+                    .accessibilityLabel(String(localized: "auth.oauth2.clientId"))
+                SecureField(String(localized: "auth.oauth2.clientSecret"), text: Binding(
+                    get: { config.clientSecret ?? "" },
+                    set: { config.clientSecret = $0.isEmpty ? nil : $0 }
+                ))
+                .accessibilityLabel(String(localized: "auth.oauth2.clientSecret"))
+                TextField(String(localized: "auth.oauth2.scopes"), text: Binding(
+                    get: { config.scopes.joined(separator: " ") },
+                    set: { config.scopes = $0.split(separator: " ").map(String.init) }
+                ))
+                .accessibilityLabel(String(localized: "auth.oauth2.scopes"))
+                TextField(String(localized: "auth.oauth2.redirectURI"), text: $config.redirectURI)
+                    .accessibilityLabel(String(localized: "auth.oauth2.redirectURI"))
+            }
+            if let onGetToken {
+                Section {
+                    HStack {
+                        let label = hasAuthError
+                            ? String(localized: "auth.oauth2.reauthorize")
+                            : String(localized: "auth.oauth2.getToken")
+                        Button(label) {
+                            Task {
+                                tokenStatus = String(localized: "auth.oauth2.authorizing")
+                                let didSucceed = await onGetToken(config)
+                                tokenStatus = didSucceed
+                                    ? String(localized: "auth.oauth2.tokenObtained")
+                                    : ""
+                            }
                         }
-                    }
-                    .disabled(config.authURL.isEmpty || config.tokenURL.isEmpty || config.clientId.isEmpty)
-                    .accessibilityLabel(label)
+                        .disabled(config.authURL.isEmpty || config.tokenURL.isEmpty || config.clientId.isEmpty)
+                        .accessibilityLabel(label)
 
-                    if !tokenStatus.isEmpty {
-                        Text(tokenStatus).foregroundStyle(.secondary).font(.caption)
+                        if !tokenStatus.isEmpty {
+                            Text(tokenStatus).foregroundStyle(.secondary).font(.caption)
+                        }
                     }
                 }
             }
         }
+        .onChange(of: config) { _, _ in tokenStatus = "" }
     }
 }

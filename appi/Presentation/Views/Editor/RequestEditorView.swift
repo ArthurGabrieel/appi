@@ -34,6 +34,7 @@ struct RequestEditorView: View {
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal)
+                .accessibilityLabel(String(localized: "request.tabs.label"))
 
                 switch selectedRequestTab {
                 case .headers:
@@ -51,10 +52,9 @@ struct RequestEditorView: View {
                             await viewModel.authorizeOAuth2(config: config)
                         }
                     )
-                    .onChange(of: viewModel.draft.auth) { _, _ in
-                        Task { await viewModel.loadEffectiveAuth() }
+                    .task(id: viewModel.draft.auth) {
+                        await viewModel.loadEffectiveAuth()
                     }
-                    .task { await viewModel.loadEffectiveAuth() }
                 }
             }
 

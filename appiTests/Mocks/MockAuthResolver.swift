@@ -3,8 +3,10 @@ import Foundation
 
 final class MockAuthResolver: AuthResolver, @unchecked Sendable {
     var resolveResult: Result<ResolvedAuth, Error> = .success(.none)
+    var shouldThrow: (any Error)?
 
     func resolve(for auth: AuthConfig, chain: [Collection]) async throws -> ResolvedAuth {
-        try resolveResult.get()
+        if let shouldThrow { throw shouldThrow }
+        return try resolveResult.get()
     }
 }

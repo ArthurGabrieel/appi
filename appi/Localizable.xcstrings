@@ -880,6 +880,38 @@
           }
         }
       }
+    },
+    "error.auth.unknown" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unknown OAuth2 error"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erro OAuth2 desconhecido"
+          }
+        }
+      }
+    },
+    "request.tabs.label" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Request Tabs"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abas da requisição"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"
